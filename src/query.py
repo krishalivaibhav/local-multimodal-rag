@@ -1,9 +1,9 @@
 """
-query.py -- smoke query against the ingested ChromaDB collection (ingest step 7).
+query.py -- smoke query against the ingested ChromaDB collection.
 
-Proves the pipeline end-to-end: embed a question, retrieve top-k, and check the
-right chunk comes back WITH correct citation metadata. This is the seed of the
-retrieval module; answer generation (LLM) comes later.
+Embed a question, retrieve top-k, and check the right chunk comes back WITH
+correct citation metadata. This is the seed of the retrieval module; answer
+generation (LLM) comes later.
 """
 
 import chromadb

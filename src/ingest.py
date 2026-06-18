@@ -3,16 +3,7 @@ ingest.py -- born-digital text + tables ingestion (v1).
 
 PDF -> routed element extraction -> unified text-space chunks -> ChromaDB,
 with citation metadata on every chunk. Figures and scanned/OCR are out of
-scope for v1. See findings.md and the plan for the full design.
-
-Build order (each step runnable on its own):
-  1. Chunk dataclass + deterministic IDs   <-- THIS STEP
-  2. Prose path
-  3. Table path (well-formed, format Y)
-  4. Table path (malformed -> flat format B; non-table -> skip)
-  5. Whole-document build (phase 1)
-  6. Batch-embed + upsert to Chroma (phase 2)
-  7. Smoke query
+scope for v1. See findings.md and deferred.md for the full design.
 """
 
 from dataclasses import dataclass
@@ -131,11 +122,7 @@ def build_row_text(header, row):
     e.g. header = ['Nomenclature', 'Definition'], row = ['ASD(Peak)', 'Calc...']
          -> "Nomenclature: ASD(Peak). Definition: Calc..."
 
-    YOU WRITE THIS. Notes:
-      - header and row are lists of the same length (well-formed table).
-      - cells can be None or '' -- use str(cell or "") so None never crashes
-        and never prints the literal word "None".
-      - return one string.
+    str(cell or "") keeps None from crashing and from printing the word "None".
     """
     pairs = []
     for head, cell in zip(header, row):
@@ -277,7 +264,6 @@ def embed_and_store(chunks):
 
 
 if __name__ == "__main__":
-    # Steps 5 + 6: build all chunks, then embed and store them in ChromaDB.
     from collections import Counter
     import time
 
@@ -287,7 +273,7 @@ if __name__ == "__main__":
 
     by_type = Counter(c.source_type for c in chunks)
 
-    print(f"\n=== STEP 5: whole-document build ===")
+    print(f"\n=== whole-document build ===")
     print(f"built {len(chunks)} chunks in {elapsed:.1f}s\n")
     print("chunks by source_type:")
     for stype, n in by_type.most_common():
@@ -296,6 +282,6 @@ if __name__ == "__main__":
     for reason, n in sorted(stats["skip"].items()):
         print(f"  {reason:<14s}: {n}")
 
-    print(f"\n=== STEP 6: embed + store ===")
+    print(f"\n=== embed + store ===")
     collection = embed_and_store(chunks)
     print(f"\ncollection '{COLLECTION_NAME}' now holds {collection.count()} vectors")
