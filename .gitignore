@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build/package outputs
+build/
+dist/
+*.whl
+
+# Logs and local runtime files
+*.log
+logs/
+tmp/
+temp/
+
+# OS/editor files
+.DS_Store
+.AppleDouble
+.LSOverride
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Project data/artifacts
+data/pdfs/*
+!data/pdfs/.gitkeep
+data/vectorstores/
+data/embeddings/
+*.faiss
+*.pkl
+*.sqlite
+*.sqlite3
+
+# Large ML/model files
+models/
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# local vector store
+data/chroma/
