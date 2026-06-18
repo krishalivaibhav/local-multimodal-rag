@@ -66,3 +66,6 @@ models/
 
 # local vector store
 data/chroma/
+
+# local-only sync/handoff doc (not for the remote)
+PROGRESS.md
