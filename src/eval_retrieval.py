@@ -81,6 +81,90 @@ TEST_CASES = [
      "note": "page 1066 particle-size distribution: 71-82 um -> 22 percent"},
 ]
 
+# Harder, more INDEPENDENT test set. Authored from reading raw PDF pages (not the
+# chunk store), so answers are not retrievable by construction -- this set can target
+# content we chunk badly and span the whole document. Hybrid provenance: cases 1-15
+# drafted by Claude from the source + user-verified; cases 16-20 are user-authored
+# "blind" (Claude never saw the source) for an unbiased spot-check. Several are
+# deliberate stress-cases on known-weak areas (marked in 'note').
+HARD_CASES = [
+    # --- straightforward factual, new regions ---
+    {"question": "In Procedure I-A (thermal shock), within how long must the test item be transferred to the second temperature?",
+     "expected_page": 130, "type": "prose", "expected_answer_contains": ["minute"],
+     "note": "Method 503.7 Procedure I-A Step 2: no more than one minute"},
+    {"question": "How long must all tactical vehicles and guns be able to deep ford?",
+     "expected_page": 300, "type": "prose", "expected_answer_contains": ["six"],
+     "note": "Method 512.6: deep ford six (6) minutes"},
+    {"question": "At an elevation of 50,000 feet, what is the temperature in degrees C (Table XXIV)?",
+     "expected_page": 1075, "type": "table", "expected_answer_contains": ["-76"],
+     "note": "Part Three Table XXIV: 15240 m / 50,000 ft -> -76 C"},
+    {"question": "For mechanical shock, what is the default value for fmax?",
+     "expected_page": 700, "type": "prose", "expected_answer_contains": ["10,000"],
+     "note": "Method 519.8: default fmax = 10,000 Hz"},
+    {"question": "What value of the ratio of specific heats used for air in cavity resonance testing?",
+     "expected_page": 540, "type": "prose", "expected_answer_contains": ["1.4"],
+     "note": "Method 515.8 Annex A: gamma = 1.4 for air"},
+    {"question": "What approximate percentage of vehicle load capacity by weight should be used for realistic load configurations?",
+     "expected_page": 388, "type": "prose", "expected_answer_contains": ["75"],
+     "note": "Method 514.8 Annex C: ~75 percent of load capacity"},
+    {"question": "Tailoring criteria should be taken not from natural environment data directly, but from what?",
+     "expected_page": 60, "type": "prose", "expected_answer_contains": ["transformation"],
+     "note": "Part One Annex C: from the transformations forcing functions create"},
+    # --- paraphrased / figure-caption ---
+    {"question": "How deep should fully enclosed armored vehicles be able to cross water?",
+     "expected_page": 300, "type": "prose", "expected_answer_contains": ["turret"],
+     "note": "Method 512.6 (paraphrased): deep ford to top of the turret"},
+    {"question": "Which fighter aircraft is used as the example mission profile for altitude and Mach number?",
+     "expected_page": 780, "type": "prose", "expected_answer_contains": ["F-15"],
+     "note": "Method 520.5 Annex A figure caption: F-15 ground attack example"},
+    # --- multi-fact (both parts must appear) ---
+    {"question": "At 50,000 feet, what are both the air pressure (kPa) and the temperature (degrees C)?",
+     "expected_page": 1075, "type": "table", "expected_answer_contains": ["10", "-76"],
+     "note": "Table XXIV: 50,000 ft -> 10 kPa, -76 C"},
+    # --- stress-cases on known-weak areas ---
+    {"question": "What is the ASD (g2/Hz) at 7 Hz for the Category 4 composite wheeled-vehicle vibration exposure?",
+     "expected_page": 400, "type": "table_flat", "expected_answer_contains": ["0.30000"],
+     "note": "STRESS #14: Table 514.8C-VIII (table_flat) 7 Hz -> 0.30000"},
+    {"question": "In Option 2 of the powered-on procedure, what does step b cover?",
+     "expected_page": 774, "type": "pseudo_table", "expected_answer_contains": ["stabiliz"],
+     "note": "STRESS #18: p774 Option 1|Option 2 pseudo-table, step b = Cold/Dry Stabilization"},
+    {"question": "In Table G (Shipboard), name one location you specify durations for.",
+     "expected_page": 48, "type": "table_flat", "expected_answer_contains": ["masthead"],
+     "note": "STRESS #14: Part One Annex A Table G (form/table_flat): Masthead, exposed upper deck, ..."},
+    {"question": "What does a q-q plot examine in the distribution of s(t)?",
+     "expected_page": 906, "type": "prose", "expected_answer_contains": ["tails"],
+     "note": "STRESS math: Method 525.2 Annex B: examine the tails / extreme values"},
+    {"question": "Name a surface effect of warm, humid environments on materiel.",
+     "expected_page": 210, "type": "prose", "expected_answer_contains": ["corrosion"],
+     "note": "Method 507.6: oxidation and/or galvanic corrosion of metals"},
+    # --- user-authored blind (Claude did not see the source) ---
+    {"question": "In shock measurement system characterization, what minimum amplitude attenuation (dB) must the anti-alias filter provide?",
+     "expected_page": 600, "type": "prose", "expected_answer_contains": ["50"],
+     "note": "BLIND: min anti-alias filter attenuation = 50 dB"},
+    {"question": "In the Beta Distribution speed example (Annex F), what is the Ratio of Avg/Max Speed?",
+     "expected_page": 460, "type": "table_flat", "expected_answer_contains": ["64"],
+     "note": "BLIND: beta distribution example, Ratio Avg/Max Speed = 64%"},
+    {"question": "What temperature range (degrees C) is given for 'Aggravated solar' conditions in high-temperature testing?",
+     "expected_page": 100, "type": "prose", "expected_answer_contains": ["71", "85"],
+     "note": "BLIND: Aggravated solar -> 71 to 85 C"},
+    {"question": "What is the recommended minimum rainfall rate for Procedure I (Rain and Blowing Rain)?",
+     "expected_page": 196, "type": "prose", "expected_answer_contains": ["1.7"],
+     "note": "BLIND: min rainfall rate = 1.7 mm/min"},
+    {"question": "In Table 515.8A-IV, what is the q max value listed for an Air-to-Air Missile?",
+     "expected_page": 543, "type": "table", "expected_answer_contains": ["1600"],
+     "note": "BLIND: Table 515.8A-IV, Air-to-Air Missile q max = 1600"},
+]
+
+# Domain-adjacent unanswerable questions for the hard set (should abstain).
+HARD_ABSTAIN_CASES = [
+    {"question": "What is the unit cost of conducting a vibration test per this standard?",
+     "note": "no costs in an environmental test standard"},
+    {"question": "What encryption algorithm does this standard mandate for test data?",
+     "note": "out of scope; no cryptography requirements"},
+    {"question": "What is the maximum allowable cybersecurity vulnerability score for fielded materiel?",
+     "note": "out of scope; not an environmental-test topic"},
+]
+
 K = 5
 
 
@@ -139,14 +223,16 @@ def per_type_hit_at_k(rows):
 
 
 if __name__ == "__main__":
-    if len(TEST_CASES) < 5:
-        print(f"WARNING: only {len(TEST_CASES)} test case(s). Add more for a "
-              f"meaningful number (aim ~10-15, spanning all chunk types).\n")
+    import sys
 
-    hit_at_k, mrr, rows = evaluate(TEST_CASES)
+    # `python eval_retrieval.py hard` runs the harder independent set.
+    cases = HARD_CASES if (len(sys.argv) > 1 and sys.argv[1] == "hard") else TEST_CASES
+    label = "HARD" if cases is HARD_CASES else "original"
 
-    print(f"=== retrieval eval (page-level, k={K}) ===")
-    print(f"cases : {len(TEST_CASES)}")
+    hit_at_k, mrr, rows = evaluate(cases)
+
+    print(f"=== retrieval eval ({label} set, page-level, k={K}) ===")
+    print(f"cases : {len(cases)}")
     print(f"Hit@{K} : {hit_at_k:.2f}")
     print(f"MRR   : {mrr:.3f}\n")
 

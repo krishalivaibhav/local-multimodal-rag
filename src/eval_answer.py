@@ -19,7 +19,7 @@ facts. At n=13 a FAIL is read by hand: fix the key (phrasing miss) or log a bug
 
 import re
 
-from eval_retrieval import TEST_CASES
+from eval_retrieval import TEST_CASES, HARD_CASES, HARD_ABSTAIN_CASES
 from answer import answer_question, ABSTAIN
 
 # Deliberately unanswerable by the document: the model MUST return the abstention
@@ -61,9 +61,9 @@ def cited_pages(result):
     return pages
 
 
-def evaluate():
+def evaluate(cases=TEST_CASES, abstain_cases=ABSTAIN_CASES):
     rows = []
-    for case in TEST_CASES:
+    for case in cases:
         r = answer_question(case["question"])
         abstained = is_abstention(r["answer"])
         v_ok = (not abstained) and value_ok(r["answer"], case["expected_answer_contains"])
@@ -75,7 +75,7 @@ def evaluate():
         })
 
     abstain_rows = []
-    for case in ABSTAIN_CASES:
+    for case in abstain_cases:
         r = answer_question(case["question"])
         abstain_rows.append({
             "case": case, "result": r,
@@ -85,7 +85,16 @@ def evaluate():
 
 
 if __name__ == "__main__":
-    rows, abstain_rows = evaluate()
+    import sys
+
+    # `python eval_answer.py hard` runs the harder independent set.
+    if len(sys.argv) > 1 and sys.argv[1] == "hard":
+        cases, abstain_cases, label = HARD_CASES, HARD_ABSTAIN_CASES, "HARD"
+    else:
+        cases, abstain_cases, label = TEST_CASES, ABSTAIN_CASES, "original"
+    print(f"[{label} set]")
+
+    rows, abstain_rows = evaluate(cases, abstain_cases)
     n = len(rows)
 
     value_acc = sum(r["value_ok"] for r in rows) / n
