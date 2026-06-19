@@ -15,52 +15,69 @@ from query import search
 
 # Each case: question -> the 1-based page where its answer actually lives.
 # 'type' is the chunk type the answer SHOULD come from (diagnostic, not enforced).
+# 'expected_answer_contains' = verified key fact(s) the answer must contain (ALL of
+#   them, case-insensitive substring) -- used by eval_answer.py for keyword-match
+#   value grading. Keys are format-stable facts (numbers / identifiers / distinctive
+#   words), never paraphrasable prose, to limit brittleness.
 # 'note' records how the answer was verified so the test set stays auditable.
 # All cases below were verified by reading the page in the actual PDF.
 TEST_CASES = [
     # --- prose ---
     {"question": "Which NATO STANAG and AECTP method was this test method adapted from?",
      "expected_page": 846, "type": "prose",
+     "expected_answer_contains": ["4370", "315"],
      "note": "adapted from NATO STANAG 4370, AECTP 300, Method 315"},
     {"question": "When computing the Cholesky factor L, what must be done if a zero element is found on the diagonal?",
      "expected_page": 995, "type": "prose",
+     "expected_answer_contains": ["column"],
      "note": "positive semi-definite L computation; entire column set to zero"},
     {"question": "What does Procedure II of the loose cargo transportation method cover?",
      "expected_page": 361, "type": "prose",
-     "note": "4.4.2 Procedure II - Loose cargo transportation"},
+     "expected_answer_contains": ["truck"],
+     "note": "4.4.2 Procedure II - Loose cargo transportation (materiel carried in/on trucks)"},
     {"question": "What causes the shock in Torpedo Launch Immersion?",
      "expected_page": 70, "type": "prose",
+     "expected_answer_contains": ["boost"],
      "note": "Torpedo Launch Immersion - shock due to launch boost"},
     {"question": "What is the fourth, specialized form of test tolerance mentioned with Gunfire Shock Method 519.8?",
      "expected_page": 867, "type": "prose",
+     "expected_answer_contains": ["periodic"],
      "note": "periodic repetition of an event, tolerance from time-trace ensemble statistics"},
 
     # --- table_row (well-formed -> Format Y) ---
     {"question": "what does ASD(Peak) mean?",
      "expected_page": 501, "type": "table_row",
-     "note": "page 501 ASD nomenclature table (original smoke-query case)"},
+     "expected_answer_contains": ["maximum"],
+     "note": "page 501 ASD nomenclature table (original smoke-query case); ASD(Peak) = max amplitude"},
     {"question": "What does ASD(Stdv) mean and how is it calculated?",
      "expected_page": 501, "type": "table_row",
+     "expected_answer_contains": ["standard deviation"],
      "note": "page 501 ASD table, row 3: standard deviation of each spectral line over n averages"},
     {"question": "Under what condition is the dynamic pressure calculation valid with respect to Mach number?",
      "expected_page": 435, "type": "table_row",
+     "expected_answer_contains": ["1.0"],
      "note": "notes row: valid only for Mach numbers less than 1.0"},
     {"question": "What is the Peak Acceleration (G-Pk) for the Functional Test for Ground Equipment?",
      "expected_page": 564, "type": "table_row",
+     "expected_answer_contains": ["40"],
      "note": "page 564 table, Functional Test for Ground Equipment, G-Pk = 40"},
 
     # --- table_flat (col_disjoint -> Format B) ---
     {"question": "Which DID number covers Mechanical Vibrations of Shipboard Equipment?",
      "expected_page": 33, "type": "table_flat",
+     "expected_answer_contains": ["DI-ENVR-81647"],
      "note": "DI-ENVR-81647, page 33 DID table (flattened)"},
     {"question": "What preheat temperature corresponds to an air pressure of 83 kPa (12 psi)?",
      "expected_page": 679, "type": "table_flat",
+     "expected_answer_contains": ["46"],
      "note": "page 679 atomizing table: 83 kPa -> 46 C (115 F)"},
     {"question": "In the chemical agents table, what are the possible uses listed for Aircraft Cleaners?",
      "expected_page": 141, "type": "table_flat",
-     "note": "page 141 chemical/source/uses table, Aircraft Cleaners row"},
+     "expected_answer_contains": ["ground equipment"],
+     "note": "page 141 chemical/source/uses table, Aircraft Cleaners row (uses: Ground Equipment/...)"},
     {"question": "What percent of particles have an effective diameter of 71 to 82 micrometers?",
      "expected_page": 1066, "type": "table_flat",
+     "expected_answer_contains": ["22"],
      "note": "page 1066 particle-size distribution: 71-82 um -> 22 percent"},
 ]
 
