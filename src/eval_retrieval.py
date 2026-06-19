@@ -132,8 +132,10 @@ HARD_CASES = [
      "expected_page": 48, "type": "table_flat", "expected_answer_contains": ["masthead"],
      "note": "STRESS #14: Part One Annex A Table G (form/table_flat): Masthead, exposed upper deck, ..."},
     {"question": "What does a q-q plot examine in the distribution of s(t)?",
-     "expected_page": 906, "type": "prose", "expected_answer_contains": ["tails"],
-     "note": "STRESS math: Method 525.2 Annex B: examine the tails / extreme values"},
+     "expected_page": 906, "type": "prose",
+     "expected_answer_contains": [("tails", "Gaussian", "normal")],
+     "note": "STRESS math: Method 525.2 Annex B: examine the 'tails'/extreme values OR "
+             "the fit to a Gaussian distribution -- either is a correct answer (adjudicated, #20)"},
     {"question": "Name a surface effect of warm, humid environments on materiel.",
      "expected_page": 210, "type": "prose", "expected_answer_contains": ["corrosion"],
      "note": "Method 507.6: oxidation and/or galvanic corrosion of metals"},

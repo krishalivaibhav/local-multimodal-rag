@@ -46,9 +46,21 @@ def is_abstention(answer):
 
 
 def value_ok(answer, keys):
-    """Keyword match: the answer must contain ALL key facts (case-insensitive)."""
+    """Keyword match: the answer must satisfy ALL key facts (case-insensitive).
+
+    A key is either a string (that substring must appear) or a tuple/list of
+    strings (ANY one must appear). The any-of form is for questions with more than
+    one correct answer -- e.g. a q-q plot examines the "tails" OR the "Gaussian"
+    fit (finding #18 / deferred #20 adjudication), so either should be credited.
+    """
     a = answer.lower()
-    return all(k.lower() in a for k in keys)
+
+    def satisfied(k):
+        if isinstance(k, (list, tuple)):
+            return any(str(x).lower() in a for x in k)
+        return str(k).lower() in a
+
+    return all(satisfied(k) for k in keys)
 
 
 def cited_pages(result):
