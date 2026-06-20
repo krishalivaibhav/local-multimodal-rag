@@ -14,8 +14,9 @@ import pdfplumber
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from sweep_tables import malformed_reason
+from vlm import transcribe_table
 
-SourceType = Literal["prose", "table_row", "table_flat", "figure_caption"]
+SourceType = Literal["prose", "table_row", "table_flat", "table_vlm", "figure_caption"]
 
 PDF_PATH = "/Users/vaibhavkrishali/Desktop/projects/RAG over pdf DRDO/code/data/pdfs/mil-std-810h.pdf"
 CHROMA_DIR = "/Users/vaibhavkrishali/Desktop/projects/RAG over pdf DRDO/code/data/chroma"
@@ -62,6 +63,8 @@ class Chunk:
             return f"{base}:p{self.page_number}:t{self.table_idx}:r{self.row_idx}"
         if self.source_type == "table_flat":
             return f"{base}:p{self.page_number}:t{self.table_idx}:flat"
+        if self.source_type == "table_vlm":
+            return f"{base}:p{self.page_number}:t{self.table_idx}:vlm"
         # figure_caption deferred to v2
         return f"{base}:p{self.page_number}:fig"
 
@@ -151,18 +154,55 @@ def build_flat_text(rows, page_number):
     return "\n".join(lines)
 
 
-def extract_table_chunks(page, page_number, source_file, stats=None):
-    """Route each table on a pdfplumber page and build chunks.
+def render_table_image(fpage, bbox, path="/tmp/_vlm_table.png", dpi=200, pad=4):
+    """Rasterise a table's bbox region to a PNG for the VLM. fitz and pdfplumber
+    share the page coordinate system, so the pdfplumber bbox is a fitz clip rect
+    directly. A few points of padding keeps header/edge glyphs from being clipped.
+    Overwrites one temp file per call (transcription is synchronous)."""
+    x0, top, x1, bottom = bbox
+    rect = fitz.Rect(x0 - pad, top - pad, x1 + pad, bottom + pad)
+    fpage.get_pixmap(clip=rect, dpi=dpi).save(path)
+    return path
+
+
+def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use_vlm=False):
+    """Route each table on a page and build chunks.
 
     Well-formed (malformed_reason is None) -> per-row format Y chunks.
     col_disjoint -> one flat format-B chunk. empty_content/too_few_rows -> skip.
 
-    If a `stats` dict is passed, record skip counts instead of printing
-    (deferred item #10).
+    If use_vlm, ALSO emit one `table_vlm` chunk per REAL table (well-formed or
+    col_disjoint): render the table region and have the VLM transcribe it to clean
+    markdown. The VLM sees 2D structure, so it reads multi-row headers / columns the
+    text path mangles (finding #20). Added alongside the text chunks, not replacing
+    them -- the streams are complementary (finding #20), so retrieval picks the best.
+    Junk regions (empty_content/too_few_rows/single_col) are NEVER sent to the VLM.
+
+    Uses find_tables() (not extract_tables()) so the cell data and bbox come from the
+    same table object. `stats` records skip counts (deferred #10).
     """
     chunks = []
-    for table_idx, rows in enumerate(page.extract_tables()):
+    for table_idx, table in enumerate(ppage.find_tables()):
+        rows = table.extract()
         reason = malformed_reason(rows)
+        is_real = reason is None or reason == "col_disjoint"
+
+        if use_vlm and is_real:                 # multimodal: VLM transcription
+            try:                                # one bad table must not wedge the build
+                image_path = render_table_image(fpage, table.bbox)
+                chunks.append(Chunk(
+                    text=transcribe_table(image_path),
+                    source_file=source_file,
+                    page_number=page_number,
+                    source_type="table_vlm",
+                    table_idx=table_idx,
+                ))
+            except Exception as e:
+                if stats is not None:
+                    stats["vlm_fail"] += 1
+                else:
+                    print(f"  VLM fail p{page_number} t{table_idx}: {type(e).__name__}")
+
         if reason is None:                      # well-formed -> format Y
             header = rows[0]
             # data rows start at table-row index 1 (row 0 is the header)
@@ -192,17 +232,18 @@ def extract_table_chunks(page, page_number, source_file, stats=None):
     return chunks
 
 
-def build_all_chunks(pdf_path, source_file):
+def build_all_chunks(pdf_path, source_file, use_vlm=False):
     """Phase 1: walk every page, build the full list[Chunk]. No embedding yet.
 
     fitz and pdfplumber both open the same PDF; we iterate their pages in
-    lockstep (both 0-based). Returns (chunks, stats).
+    lockstep (both 0-based). If use_vlm, each real table also gets a VLM markdown
+    transcription chunk (slower: one vision call per real table). Returns (chunks, stats).
     """
     from collections import defaultdict
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     chunks = []
-    stats = {"skip": defaultdict(int)}
+    stats = {"skip": defaultdict(int), "vlm_fail": 0}
 
     with fitz.open(pdf_path) as doc, pdfplumber.open(pdf_path) as pdf:
         for page_index in range(doc.page_count):
@@ -210,7 +251,8 @@ def build_all_chunks(pdf_path, source_file):
             chunks += extract_prose_chunks(
                 doc[page_index], page_number, source_file, splitter)
             chunks += extract_table_chunks(
-                pdf.pages[page_index], page_number, source_file, stats)
+                pdf.pages[page_index], doc[page_index], page_number,
+                source_file, stats, use_vlm=use_vlm)
 
     return chunks, stats
 
@@ -265,10 +307,16 @@ def embed_and_store(chunks):
 
 if __name__ == "__main__":
     from collections import Counter
+    import sys
     import time
 
+    # `python ingest.py vlm` adds a VLM table-transcription chunk per real table
+    # (slower: one vision call each). Default is the fast text-only build.
+    use_vlm = len(sys.argv) > 1 and sys.argv[1] == "vlm"
+    print(f"use_vlm = {use_vlm}")
+
     t0 = time.time()
-    chunks, stats = build_all_chunks(PDF_PATH, "mil-std-810h.pdf")
+    chunks, stats = build_all_chunks(PDF_PATH, "mil-std-810h.pdf", use_vlm=use_vlm)
     elapsed = time.time() - t0
 
     by_type = Counter(c.source_type for c in chunks)
@@ -281,6 +329,8 @@ if __name__ == "__main__":
     print("\nskipped (non-table detections):")
     for reason, n in sorted(stats["skip"].items()):
         print(f"  {reason:<14s}: {n}")
+    if use_vlm:
+        print(f"VLM transcription failures (skipped, not fatal): {stats['vlm_fail']}")
 
     print(f"\n=== embed + store ===")
     collection = embed_and_store(chunks)

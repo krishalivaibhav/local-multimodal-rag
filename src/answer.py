@@ -53,6 +53,8 @@ def render_citation(meta):
         return f"page {page}, table {meta.get('table_idx')}, row {meta.get('row_idx')}"
     if stype == "table_flat":
         return f"page {page}, table {meta.get('table_idx')} (flattened)"
+    if stype == "table_vlm":
+        return f"page {page}, table {meta.get('table_idx')} (VLM transcription)"
     return f"page {page}"
 
 
