@@ -300,13 +300,19 @@ def build_all_chunks(pdf_path, source_file, use_vlm=False):
     stats = {"skip": defaultdict(int), "vlm_fail": 0}
 
     with fitz.open(pdf_path) as doc, pdfplumber.open(pdf_path) as pdf:
-        for page_index in range(doc.page_count):
+        n_pages = doc.page_count
+        for page_index in range(n_pages):
             page_number = page_index + 1
             chunks += extract_prose_chunks(
                 doc[page_index], page_number, source_file, splitter)
             chunks += extract_table_chunks(
                 pdf.pages[page_index], doc[page_index], page_number,
                 source_file, stats, use_vlm=use_vlm)
+            # progress heartbeat (flush so it streams to a terminal / tee'd log,
+            # especially during the slow use_vlm phase which is otherwise silent)
+            if page_index % 25 == 0 or page_number == n_pages:
+                print(f"  [{source_file}] page {page_number}/{n_pages}  "
+                      f"chunks={len(chunks)}  vlm_fail={stats['vlm_fail']}", flush=True)
 
     return chunks, stats
 
@@ -361,31 +367,37 @@ def embed_and_store(chunks):
 
 if __name__ == "__main__":
     from collections import Counter
+    from pathlib import Path
     import sys
     import time
 
+    from config import PDFS_DIR
+
     # `python ingest.py vlm` adds a VLM table-transcription chunk per real table
     # (slower: one vision call each). Default is the fast text-only build.
+    # Ingests EVERY *.pdf in PDFS_DIR -- drop docs in data/pdfs/ to add them. Each
+    # doc's source_file is its filename, so chunk_ids are namespaced per document.
     use_vlm = len(sys.argv) > 1 and sys.argv[1] == "vlm"
-    print(f"use_vlm = {use_vlm}")
+    pdfs = sorted(Path(PDFS_DIR).glob("*.pdf"))
+    print(f"use_vlm = {use_vlm}; ingesting {len(pdfs)} PDF(s) from {PDFS_DIR}")
+    if not pdfs:
+        sys.exit(f"no PDFs found in {PDFS_DIR}")
 
     t0 = time.time()
-    chunks, stats = build_all_chunks(PDF_PATH, "mil-std-810h.pdf", use_vlm=use_vlm)
-    elapsed = time.time() - t0
+    all_chunks = []
+    for pdf in pdfs:
+        print(f"\n--- {pdf.name} ---", flush=True)
+        chunks, stats = build_all_chunks(str(pdf), pdf.name, use_vlm=use_vlm)
+        by_type = Counter(c.source_type for c in chunks)
+        print("  " + ", ".join(f"{t}={n}" for t, n in by_type.most_common()))
+        print(f"  skipped={dict(stats['skip'])}"
+              + (f"  vlm_fail={stats['vlm_fail']}" if use_vlm else ""))
+        all_chunks += chunks
 
-    by_type = Counter(c.source_type for c in chunks)
-
-    print(f"\n=== whole-document build ===")
-    print(f"built {len(chunks)} chunks in {elapsed:.1f}s\n")
-    print("chunks by source_type:")
-    for stype, n in by_type.most_common():
-        print(f"  {stype:<12s}: {n}")
-    print("\nskipped (non-table detections):")
-    for reason, n in sorted(stats["skip"].items()):
-        print(f"  {reason:<14s}: {n}")
-    if use_vlm:
-        print(f"VLM transcription failures (skipped, not fatal): {stats['vlm_fail']}")
-
-    print(f"\n=== embed + store ===")
-    collection = embed_and_store(chunks)
+    print(f"\n=== built {len(all_chunks)} chunks from {len(pdfs)} PDF(s) "
+          f"in {time.time() - t0:.1f}s ===")
+    print("\n=== embed + store ===")
+    collection = embed_and_store(all_chunks)
     print(f"\ncollection '{COLLECTION_NAME}' now holds {collection.count()} vectors")
+    # NOTE: removing a PDF from the folder does NOT delete its old chunks (upsert
+    # only adds/updates). For a clean change of the doc set, delete data/chroma first.

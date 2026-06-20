@@ -35,6 +35,7 @@ def _env(name, default):
 
 
 PDF_PATH = _env("RAG_PDF_PATH", str(_ROOT / "data" / "pdfs" / "mil-std-810h.pdf"))
+PDFS_DIR = _env("RAG_PDFS_DIR", str(_ROOT / "data" / "pdfs"))   # ingest ALL *.pdf here
 CHROMA_DIR = _env("RAG_CHROMA_DIR", str(_ROOT / "data" / "chroma"))
 COLLECTION_NAME = _env("RAG_COLLECTION", "mil_std_docs")
 
