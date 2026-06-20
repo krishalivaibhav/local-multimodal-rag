@@ -156,8 +156,10 @@ Per-machine examples:
 ```bash
 # Windows + 6GB RTX 3060  (gemma3:4b fits; qwen-VL won't)
 set RAG_DEVICE=cuda& set RAG_VLM_MODEL=gemma3:4b& set RAG_RENDER_DPI=150
-# Windows + 8GB RTX 5050  (try the stronger VLM, lower DPI to fit)
-set RAG_DEVICE=cuda& set RAG_VLM_MODEL=qwen2.5vl:7b& set RAG_RENDER_DPI=150
+# Windows + 8GB RTX 5050  (try the stronger VLM; keep DPI 200 default for sharper text)
+set RAG_DEVICE=cuda& set RAG_VLM_MODEL=qwen2.5vl:7b
+#   if qwen-7B OOMs on large tables at 200 DPI, drop to 150: ...& set RAG_RENDER_DPI=150
+#   (a per-table OOM is skipped, not fatal -- the build still completes)
 ```
 
 **4. Build the index and ask questions** (from `src/`)
