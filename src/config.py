@@ -53,3 +53,9 @@ HYBRID = _env("RAG_HYBRID", "").lower() in ("1", "true", "yes")
 # RAG_PARENT_TABLES=1 expands a retrieved table ROW into its full parent TABLE before
 # the answer LLM sees it (small-to-big retrieval, deferred #26). Off by default.
 PARENT_TABLES = _env("RAG_PARENT_TABLES", "").lower() in ("1", "true", "yes")
+
+# RAG_HYDE=1 expands the query via HyDE: the LLM writes a short hypothetical answer,
+# and retrieval embeds (question + hypothetical) instead of the bare question, so the
+# query matches a table's CELLS rather than only its caption. Costs one extra LLM call
+# per query (latency); evaluate net effect before shipping. Off by default.
+HYDE = _env("RAG_HYDE", "").lower() in ("1", "true", "yes")

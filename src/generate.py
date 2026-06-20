@@ -38,6 +38,34 @@ def generate(messages, model=MODEL, temperature=0.0):
     return response["message"]["content"]
 
 
+# HyDE (Hypothetical Document Embeddings). Under-specified queries that DESCRIBE a table
+# ("what test stands are in Table 6.1-2?") match the table's CAPTION, not its cells. HyDE
+# asks the LLM to write the answer it EXPECTS, then we retrieve on that text -- so the
+# query vector lands near the answer content. Confident, no-hedge instruction so the
+# passage reads like a document excerpt (a refusal/"I'm unsure" would be useless to embed).
+HYDE_PROMPT = (
+    "Write a short, factual passage (2-3 sentences) that could plausibly answer the "
+    "question below, as if excerpted from a technical reference document. Write it as a "
+    "confident statement of fact; do not hedge, do not say you are unsure, do not ask for "
+    "clarification. Output only the passage.\n\nQuestion: "
+)
+
+
+def hyde_query(question, model=MODEL, temperature=0.0):
+    """Return a short hypothetical answer passage for `question` (HyDE).
+
+    The caller embeds this alongside the question so retrieval matches answer content,
+    not just the question's wording. temperature=0.0 -> one deterministic passage, so the
+    eval is reproducible. Returns "" on any failure, so the caller falls back to the raw
+    question -- HyDE can degrade to baseline but never break retrieval.
+    """
+    try:
+        msgs = [{"role": "user", "content": HYDE_PROMPT + question}]
+        return generate(msgs, model=model, temperature=temperature).strip()
+    except Exception:
+        return ""
+
+
 if __name__ == "__main__":
     # Smoke test: can the boundary reach a local model and get text back?
     reply = generate(

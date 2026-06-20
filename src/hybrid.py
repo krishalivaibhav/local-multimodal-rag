@@ -59,21 +59,26 @@ def _index():
     return _cache
 
 
-def hybrid_search(question, k=5, source_file=None, fetch=50, rrf_k=60):
+def hybrid_search(question, k=5, source_file=None, fetch=50, rrf_k=60, query_text=None):
     """Dense + BM25 retrieval fused by reciprocal-rank fusion. Returns the same
     {ids, documents, metadatas, distances} shape as query.search (distances hold the
-    RRF score, higher = better, for transparency)."""
+    RRF score, higher = better, for transparency).
+
+    query_text: text used for BOTH the dense embedding and the BM25 tokens, if different
+    from `question` (HyDE passes question + hypothetical -- its extra keywords help the
+    lexical side too). Defaults to `question`."""
     idx = _index()
     where = {"source_file": source_file} if source_file else None
+    qt = query_text or question
 
     # dense ranking (cosine, optionally doc-scoped)
     q_emb = idx["model"].encode(
-        QUERY_INSTRUCTION + question, normalize_embeddings=True).tolist()
+        QUERY_INSTRUCTION + qt, normalize_embeddings=True).tolist()
     dres = idx["col"].query(query_embeddings=[q_emb], n_results=fetch, where=where)
     dense_ids = dres["ids"][0]
 
     # bm25 ranking over the whole corpus, then filtered to the scoped doc
-    scores = idx["bm25"].get_scores(_tok(question))
+    scores = idx["bm25"].get_scores(_tok(qt))
     bm25_ids = []
     for i in sorted(range(len(scores)), key=lambda j: -scores[j]):
         if source_file and idx["metas"][i].get("source_file") != source_file:

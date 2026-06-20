@@ -83,16 +83,23 @@ def fetch_table(source_file, page, table_idx):
 
 def retrieve(question, k=5, source_file=None):
     """Retrieval entry point: dense+BM25 hybrid if config.HYBRID, else plain dense.
-    Lazy imports so neither config nor hybrid is loaded unless needed."""
-    from config import HYBRID
+    With config.HYDE, expand the query first (embed question + a hypothetical answer).
+    Lazy imports so nothing extra is loaded unless its flag is on."""
+    from config import HYBRID, HYDE
+    query_text = question
+    if HYDE:
+        from generate import hyde_query
+        hyp = hyde_query(question)
+        if hyp:
+            query_text = f"{question}\n{hyp}"   # query expansion: anchor + hypothetical
     if HYBRID:
         from hybrid import hybrid_search        # lazy: hybrid imports from query
-        return hybrid_search(question, k=k, source_file=source_file)
-    return search(question, k=k, source_file=source_file)
+        return hybrid_search(question, k=k, source_file=source_file, query_text=query_text)
+    return search(question, k=k, source_file=source_file, query_text=query_text)
 
 
-def search(question, k=5, table_boost=None, source_file=None):
-    """Embed `question`, retrieve top-k, optionally reranked to favour table chunks.
+def search(question, k=5, table_boost=None, source_file=None, query_text=None):
+    """Embed the query, retrieve top-k, optionally reranked to favour table chunks.
 
     When the boost > 0, over-fetch candidates and subtract the boost from the cosine
     distance of table_* chunks before taking the top-k -- lifting a table chunk that
@@ -103,12 +110,15 @@ def search(question, k=5, table_boost=None, source_file=None):
     source_file: if given, restrict retrieval to that one document (Chroma metadata
     filter). This is doc-scoped retrieval for a multi-doc corpus -- the validated fix
     for the near-duplicate routing problem (finding #30 / deferred #23).
+
+    query_text: the text actually EMBEDDED, if different from `question` (HyDE passes
+    question + hypothetical here). Defaults to `question`.
     """
     boost = TABLE_BOOST if table_boost is None else table_boost
     where = {"source_file": source_file} if source_file else None
     model = SentenceTransformer(EMBED_MODEL, device=DEVICE)
     q_emb = model.encode(
-        QUERY_INSTRUCTION + question,
+        QUERY_INSTRUCTION + (query_text or question),
         normalize_embeddings=True,        # match the normalised stored vectors
     ).tolist()
 
