@@ -45,3 +45,7 @@ VLM_MODEL = _env("RAG_VLM_MODEL", "gemma3:4b")
 LLM_MODEL = _env("RAG_LLM_MODEL", "qwen2.5:7b-instruct-q4_K_M")
 
 RENDER_DPI = int(_env("RAG_RENDER_DPI", "200"))
+
+# RAG_HYBRID=1 routes retrieval through dense+BM25 reciprocal-rank fusion (hybrid.py)
+# instead of plain dense cosine. Off by default.
+HYBRID = _env("RAG_HYBRID", "").lower() in ("1", "true", "yes")

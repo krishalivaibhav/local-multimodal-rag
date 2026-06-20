@@ -67,6 +67,16 @@ def route_query(question, source_files=None):
     return matches[0] if len(matches) == 1 else None
 
 
+def retrieve(question, k=5, source_file=None):
+    """Retrieval entry point: dense+BM25 hybrid if config.HYBRID, else plain dense.
+    Lazy imports so neither config nor hybrid is loaded unless needed."""
+    from config import HYBRID
+    if HYBRID:
+        from hybrid import hybrid_search        # lazy: hybrid imports from query
+        return hybrid_search(question, k=k, source_file=source_file)
+    return search(question, k=k, source_file=source_file)
+
+
 def search(question, k=5, table_boost=None, source_file=None):
     """Embed `question`, retrieve top-k, optionally reranked to favour table chunks.
 

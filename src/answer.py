@@ -20,7 +20,7 @@ and "what the model claimed to stand on".
 
 import re
 
-from query import search, route_query
+from query import retrieve, route_query
 from generate import generate
 
 # Matches citation tags the model emits, e.g. [S1], [S12].
@@ -127,7 +127,7 @@ def answer_question(question, k=5):
     """
     # doc routing (#23): if the query names one document, scope retrieval to it so a
     # near-duplicate (810G vs 810H) can't out-compete the intended doc.
-    res = search(question, k=k, source_file=route_query(question))
+    res = retrieve(question, k=k, source_file=route_query(question))
     metadatas = res["metadatas"][0]
     documents = res["documents"][0]
 
