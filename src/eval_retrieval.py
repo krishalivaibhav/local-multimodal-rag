@@ -11,7 +11,7 @@ actual PDF -- a wrong expected_page makes every metric meaningless. Seeded with
 a few cases confirmed during the build; YOU expand it (see TODO).
 """
 
-from query import search
+from query import search, route_query
 
 # Each case: question -> the 1-based page where its answer actually lives.
 # 'type' is the chunk type the answer SHOULD come from (diagnostic, not enforced).
@@ -236,7 +236,7 @@ def evaluate(test_cases, k=K):
     rows = []
 
     for case in test_cases:
-        res = search(case["question"], k=k)
+        res = search(case["question"], k=k, source_file=route_query(case["question"]))
         metas = res["metadatas"][0]
         pages = [m.get("page_number") for m in metas]
         types = [m.get("source_type") for m in metas]
