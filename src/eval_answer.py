@@ -114,9 +114,25 @@ if __name__ == "__main__":
     over_abstain = sum(r["abstained"] for r in rows)
     correct_abstain = sum(a["abstained"] for a in abstain_rows)
 
-    print(f"=== answer eval (n={n} answerable, {len(abstain_rows)} unanswerable) ===")
-    print(f"value accuracy    : {value_acc:.2f}  (answer contains the key fact)")
-    print(f"citation accuracy : {cite_acc:.2f}  (model cited a source on the expected page)")
+    # Precision / recall / F1. Precision = correct among the questions the model
+    # ANSWERED (didn't abstain); recall = correct among all answerable. So a wrong
+    # answer hurts precision, an over-abstention hurts recall. Strong abstention ->
+    # high precision; the gap to 1.0 is mostly recall (questions it couldn't answer).
+    answered = sum(not r["abstained"] for r in rows)
+
+    def prf(correct):
+        p = correct / answered if answered else 0.0
+        r = correct / n if n else 0.0
+        f1 = 2 * p * r / (p + r) if (p + r) else 0.0
+        return p, r, f1
+
+    vp, vr, vf1 = prf(sum(r["value_ok"] for r in rows))
+    cp, cr, cf1 = prf(sum(r["cite_ok"] for r in rows))
+
+    print(f"=== answer eval (n={n} answerable, {len(abstain_rows)} unanswerable, "
+          f"{answered} answered) ===")
+    print(f"value    : acc {value_acc:.2f} | precision {vp:.2f} recall {vr:.2f} F1 {vf1:.2f}")
+    print(f"citation : acc {cite_acc:.2f} | precision {cp:.2f} recall {cr:.2f} F1 {cf1:.2f}")
     print(f"over-abstention   : {over_abstain}/{n}  (refused an answerable question)")
     print(f"abstention (neg)  : {correct_abstain}/{len(abstain_rows)}  (correctly refused the unanswerable)\n")
 
