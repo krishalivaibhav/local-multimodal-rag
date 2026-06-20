@@ -90,7 +90,10 @@ class Chunk:
         return {k: v for k, v in fields.items() if v is not None}
 
 
-def extract_prose_chunks(page, page_number, source_file, splitter):
+MIN_PROSE_CHARS = 40   # drop prose blocks shorter than this (page headers/footers, #33)
+
+
+def extract_prose_chunks(page, page_number, source_file, splitter, stats=None):
     """Turn one page's prose blocks into a list[Chunk].
 
     fitz block tuple layout:
@@ -105,6 +108,13 @@ def extract_prose_chunks(page, page_number, source_file, splitter):
     for block in page.get_text("blocks"):
         text = block[4]
         if not text.strip():            # finding #2: skip whitespace-only blocks
+            continue
+        # finding #33: skip tiny blocks -- running page headers/footers ("MIL-STD-810G
+        # METHOD 512.5"), page numbers, etc. They carry no facts but BM25-match method
+        # numbers and flood retrieval (one identical header chunk per page of a method).
+        if len(text.strip()) < MIN_PROSE_CHARS:
+            if stats is not None:
+                stats["skip"]["short_block"] += 1
             continue
         block_no = block[5]
         for chunk_idx, piece in enumerate(splitter.split_text(text)):
@@ -307,7 +317,7 @@ def build_all_chunks(pdf_path, source_file, use_vlm=False):
         for page_index in range(n_pages):
             page_number = page_index + 1
             chunks += extract_prose_chunks(
-                doc[page_index], page_number, source_file, splitter)
+                doc[page_index], page_number, source_file, splitter, stats)
             chunks += extract_table_chunks(
                 pdf.pages[page_index], doc[page_index], page_number,
                 source_file, stats, use_vlm=use_vlm)
