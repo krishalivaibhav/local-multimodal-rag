@@ -167,6 +167,58 @@ HARD_ABSTAIN_CASES = [
      "note": "out of scope; not an environmental-test topic"},
 ]
 
+# Multi-document set (finding #29): questions over the NASA handbook + MIL-STD-810G,
+# each with expected_source_file so the eval checks the answer cites the RIGHT document
+# (page numbers alone are ambiguous across docs -- 810G is a near-duplicate of 810H).
+MULTIDOC_CASES = [
+    # --- NASA Systems Engineering Handbook (cross-style content) ---
+    {"question": "In NASA's project-type classification (Table 3.11-1), what kind of mission is Type A?",
+     "expected_page": 48, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "table", "expected_answer_contains": ["Human Space Flight"],
+     "note": "Table 3.11-1: Type A = Human Space Flight or Very Large Science/Robotic"},
+    {"question": "What does the NASA SE competency Product Validation (SE 2.4) confirm the end product satisfies?",
+     "expected_page": 25, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "prose", "expected_answer_contains": ["stakeholder expectations"],
+     "note": "SE 2.4 product validation -> satisfies stakeholder expectations"},
+    {"question": "The NASA glossary defines Reliability as the measure of the degree to which a system ensures what?",
+     "expected_page": 200, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "prose", "expected_answer_contains": ["mission success"],
+     "note": "glossary: reliability -> ensures mission success"},
+    {"question": "What does CPI stand for in NASA's asset-protection planning?",
+     "expected_page": 165, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "prose", "expected_answer_contains": ["Critical Program Information"],
+     "note": "CPI = Critical Program Information"},
+    {"question": "TPMs are used to confirm progress and identify what?",
+     "expected_page": 72, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "prose", "expected_answer_contains": ["deficiencies"],
+     "note": "TPMs confirm progress and identify deficiencies"},
+    {"question": "What kind of test stands are listed among facilities to consider in Table 6.1-2?",
+     "expected_page": 130, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "table", "expected_answer_contains": ["Propulsion"],
+     "note": "Table 6.1-2 facilities include Propulsion Test Stands"},
+    # --- MIL-STD-810G (near-duplicate of 810H; MUST cite 810G) ---
+    {"question": "In MIL-STD-810G Method 512.5 (Immersion), what can the test verify in lieu of a rain test?",
+     "expected_page": 230, "expected_source_file": "MIL-STD-810G.pdf",
+     "type": "prose", "expected_answer_contains": ["watertightness"],
+     "note": "DISAMBIG: 512.5 is G's numbering (810H = 512.6); immersion -> watertightness"},
+    {"question": "In MIL-STD-810G, which method's Annex D gives operational tailoring guidance for vibration exposure?",
+     "expected_page": 320, "expected_source_file": "MIL-STD-810G.pdf",
+     "type": "prose", "expected_answer_contains": ["514.6"],
+     "note": "DISAMBIG: 514.6 is G (810H = 514.8)"},
+    {"question": "In MIL-STD-810G Method 505.5, what type of filter is presently preferred?",
+     "expected_page": 140, "expected_source_file": "MIL-STD-810G.pdf",
+     "type": "prose", "expected_answer_contains": ["glass"],
+     "note": "Method 505.5 prefers glass filters"},
+    {"question": "In MIL-STD-810G Table 516.6A-I, what is the normal tolerance factor for N=3 at gamma=0.50, beta=0.90?",
+     "expected_page": 410, "expected_source_file": "MIL-STD-810G.pdf",
+     "type": "table", "expected_answer_contains": ["1.50"],
+     "note": "Table 516.6A-I: N=3, gamma=0.50, beta=0.90 -> 1.50"},
+    {"question": "In MIL-STD-810G Part One Annex D, what is x(t) called relative to X(f)?",
+     "expected_page": 60, "expected_source_file": "MIL-STD-810G.pdf",
+     "type": "prose", "expected_answer_contains": ["inverse Fourier"],
+     "note": "Annex D: x(t) = inverse Fourier transform of X(f)"},
+]
+
 K = 5
 
 
@@ -188,10 +240,14 @@ def evaluate(test_cases, k=K):
         metas = res["metadatas"][0]
         pages = [m.get("page_number") for m in metas]
         types = [m.get("source_type") for m in metas]
+        sfiles = [m.get("source_file") for m in metas]
+        # match on (source_file, page): in a multi-doc store a page number alone is
+        # ambiguous. Defaults to 810h so the original single-doc cases still work.
+        exp_sf = case.get("expected_source_file", "mil-std-810h.pdf")
 
         rank = None
-        for i, page in enumerate(pages, start=1):
-            if page == case["expected_page"]:
+        for i, (page, sf) in enumerate(zip(pages, sfiles), start=1):
+            if page == case["expected_page"] and sf == exp_sf:
                 rank = i
                 break
 
@@ -227,9 +283,10 @@ def per_type_hit_at_k(rows):
 if __name__ == "__main__":
     import sys
 
-    # `python eval_retrieval.py hard` runs the harder independent set.
-    cases = HARD_CASES if (len(sys.argv) > 1 and sys.argv[1] == "hard") else TEST_CASES
-    label = "HARD" if cases is HARD_CASES else "original"
+    # `python eval_retrieval.py hard|multidoc` selects the case set.
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    cases = {"hard": HARD_CASES, "multidoc": MULTIDOC_CASES}.get(arg, TEST_CASES)
+    label = {"hard": "HARD", "multidoc": "MULTIDOC"}.get(arg, "original")
 
     hit_at_k, mrr, rows = evaluate(cases)
 

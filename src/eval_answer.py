@@ -19,7 +19,7 @@ facts. At n=13 a FAIL is read by hand: fix the key (phrasing miss) or log a bug
 
 import re
 
-from eval_retrieval import TEST_CASES, HARD_CASES, HARD_ABSTAIN_CASES
+from eval_retrieval import TEST_CASES, HARD_CASES, HARD_ABSTAIN_CASES, MULTIDOC_CASES
 from answer import answer_question, ABSTAIN
 
 # Deliberately unanswerable by the document: the model MUST return the abstention
@@ -73,13 +73,27 @@ def cited_pages(result):
     return pages
 
 
+def cite_ok(result, case):
+    """Did the model cite the expected (document, page)? The citation string now
+    carries the source doc ("doc - page N, ..."), so in a multi-doc corpus we
+    require BOTH the right document and the right page (page alone is ambiguous).
+    Defaults to 810h for the original single-doc cases."""
+    exp_sf = case.get("expected_source_file", "mil-std-810h.pdf")
+    pat = re.compile(rf"page {case['expected_page']}(?!\d)")
+    for tag in result["cited"]:
+        cite = result["citation_map"][tag]
+        if exp_sf in cite and pat.search(cite):
+            return True
+    return False
+
+
 def evaluate(cases=TEST_CASES, abstain_cases=ABSTAIN_CASES):
     rows = []
     for case in cases:
         r = answer_question(case["question"])
         abstained = is_abstention(r["answer"])
         v_ok = (not abstained) and value_ok(r["answer"], case["expected_answer_contains"])
-        c_ok = case["expected_page"] in cited_pages(r)
+        c_ok = cite_ok(r, case)
         rows.append({
             "case": case, "result": r,
             "value_ok": v_ok, "cite_ok": c_ok,
@@ -99,11 +113,12 @@ def evaluate(cases=TEST_CASES, abstain_cases=ABSTAIN_CASES):
 if __name__ == "__main__":
     import sys
 
-    # `python eval_answer.py hard` runs the harder independent set.
-    if len(sys.argv) > 1 and sys.argv[1] == "hard":
-        cases, abstain_cases, label = HARD_CASES, HARD_ABSTAIN_CASES, "HARD"
-    else:
-        cases, abstain_cases, label = TEST_CASES, ABSTAIN_CASES, "original"
+    # `python eval_answer.py hard|multidoc` selects the case set.
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    sets = {"hard": (HARD_CASES, HARD_ABSTAIN_CASES, "HARD"),
+            "multidoc": (MULTIDOC_CASES, [], "MULTIDOC"),
+            "": (TEST_CASES, ABSTAIN_CASES, "original")}
+    cases, abstain_cases, label = sets.get(arg, sets[""])
     print(f"[{label} set]")
 
     rows, abstain_rows = evaluate(cases, abstain_cases)
@@ -142,11 +157,13 @@ if __name__ == "__main__":
         v = "V" if r["value_ok"] else "-"
         cite = "C" if r["cite_ok"] else "-"
         ab = " ABSTAINED" if r["abstained"] else ""
-        cited = cited_pages(r["result"]) or "none"
-        print(f"  [{v}{cite}] exp p{c['expected_page']:<4} ({c['type']:<10}) "
-              f"keys={c['expected_answer_contains']} cited_pages={cited}{ab}")
-        print(f"        Q: {c['question']}")
-        print(f"        A: {r['result']['answer'][:160].replace(chr(10), ' ')}")
+        cmap = r["result"]["citation_map"]
+        cited = [cmap[t] for t in r["result"]["cited"]] or ["none"]
+        exp_sf = c.get("expected_source_file", "mil-std-810h.pdf")
+        print(f"  [{v}{cite}] exp {exp_sf} p{c['expected_page']} ({c['type']}) "
+              f"keys={c['expected_answer_contains']}{ab}")
+        print(f"        cited: {cited}")
+        print(f"        A: {r['result']['answer'][:150].replace(chr(10), ' ')}")
 
     print("\nunanswerable cases (should abstain):")
     for a in abstain_rows:
