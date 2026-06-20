@@ -31,17 +31,42 @@ TABLE_PROMPT = (
 )
 
 
+# Figures want DESCRIPTION (for retrieval), not verbatim transcription. The
+# surrounding caption/heading is appended as context so the model isn't guessing
+# from pixels alone (README: context bundling).
+FIGURE_PROMPT = (
+    "Describe this figure for search and question-answering. State what kind of "
+    "figure it is (chart, diagram, schematic, plot, equation, ...), its title or "
+    "caption if visible, the axes / labels / units, and the key relationship or "
+    "information it conveys. If it is an equation, transcribe it. Be concise and "
+    "factual; do not speculate beyond what is shown."
+)
+
+
+def _ask(image_path, prompt, model, temperature):
+    response = _client.chat(
+        model=model,
+        messages=[{"role": "user", "content": prompt, "images": [image_path]}],
+        options={"temperature": temperature, "num_predict": MAX_TOKENS},
+    )
+    return response["message"]["content"]
+
+
 def transcribe_table(image_path, model=VLM_MODEL, temperature=0.0):
     """Render -> text: transcribe a table image to markdown via the local VLM.
 
     temperature=0.0: transcription must be faithful and reproducible, not creative.
     """
-    response = _client.chat(
-        model=model,
-        messages=[{"role": "user", "content": TABLE_PROMPT, "images": [image_path]}],
-        options={"temperature": temperature, "num_predict": MAX_TOKENS},
-    )
-    return response["message"]["content"]
+    return _ask(image_path, TABLE_PROMPT, model, temperature)
+
+
+def transcribe_figure(image_path, context="", model=VLM_MODEL, temperature=0.0):
+    """Render -> text: describe a figure region for retrieval. `context` (the nearby
+    caption / section heading) is appended so the model is grounded, not guessing."""
+    prompt = FIGURE_PROMPT
+    if context.strip():
+        prompt += f"\n\nSurrounding text (for context, may be incomplete): {context.strip()}"
+    return _ask(image_path, prompt, model, temperature)
 
 
 if __name__ == "__main__":

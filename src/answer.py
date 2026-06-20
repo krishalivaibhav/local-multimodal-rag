@@ -57,6 +57,8 @@ def render_citation(meta):
         return f"page {page}, table {meta.get('table_idx')} (VLM transcription)"
     if stype == "table_vlm_row":
         return f"page {page}, table {meta.get('table_idx')}, row {meta.get('row_idx')} (VLM)"
+    if stype == "figure_caption":
+        return f"page {page}, figure {meta.get('block_idx')}"
     return f"page {page}"
 
 

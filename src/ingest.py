@@ -66,7 +66,9 @@ class Chunk:
             return f"{base}:p{self.page_number}:t{self.table_idx}:vlm"
         if self.source_type == "table_vlm_row":
             return f"{base}:p{self.page_number}:t{self.table_idx}:vlmr{self.row_idx}"
-        # figure_caption deferred to v2
+        if self.source_type == "figure_caption":
+            # block_idx carries the figure index on the page (multiple figures/page)
+            return f"{base}:p{self.page_number}:fig{self.block_idx}"
         return f"{base}:p{self.page_number}:fig"
 
     def metadata(self) -> dict:
