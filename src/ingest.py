@@ -15,14 +15,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from sweep_tables import malformed_reason
 from vlm import transcribe_table
+# Re-exported so existing `from ingest import CHROMA_DIR, ...` keeps working.
+from config import (PDF_PATH, CHROMA_DIR, COLLECTION_NAME, EMBED_MODEL,
+                    DEVICE, RENDER_DPI)
 
 SourceType = Literal["prose", "table_row", "table_flat", "table_vlm",
                      "table_vlm_row", "figure_caption"]
-
-PDF_PATH = "/Users/vaibhavkrishali/Desktop/projects/RAG over pdf DRDO/code/data/pdfs/mil-std-810h.pdf"
-CHROMA_DIR = "/Users/vaibhavkrishali/Desktop/projects/RAG over pdf DRDO/code/data/chroma"
-COLLECTION_NAME = "mil_std_docs"
-EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 
 
 @dataclass
@@ -157,7 +155,7 @@ def build_flat_text(rows, page_number):
     return "\n".join(lines)
 
 
-def render_table_image(fpage, bbox, path="/tmp/_vlm_table.png", dpi=200, pad=4):
+def render_table_image(fpage, bbox, path="/tmp/_vlm_table.png", dpi=RENDER_DPI, pad=4):
     """Rasterise a table's bbox region to a PNG for the VLM. fitz and pdfplumber
     share the page coordinate system, so the pdfplumber bbox is a fitz clip rect
     directly. A few points of padding keeps header/edge glyphs from being clipped.
@@ -333,10 +331,10 @@ def embed_and_store(chunks):
     texts = [c.text for c in chunks]
     metadatas = [c.metadata() for c in chunks]
 
-    print(f"loading {EMBED_MODEL} ...")
-    # Force CPU on the dev Mac: MPS (Apple GPU) OOMs under unified-memory
-    # contention. CPU is fine for ~24k short chunks. (Target A1000 -> "cuda".)
-    model = SentenceTransformer(EMBED_MODEL, device="cpu")
+    print(f"loading {EMBED_MODEL} on {DEVICE} ...")
+    # DEVICE from config: cpu on the dev Mac (MPS OOMs under unified-memory
+    # contention), "cuda" on a GPU box (RAG_DEVICE=cuda) for fast embedding.
+    model = SentenceTransformer(EMBED_MODEL, device=DEVICE)
     print(f"embedding {len(texts)} chunks ...")
     embeddings = model.encode(
         texts, batch_size=64, normalize_embeddings=True,

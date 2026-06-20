@@ -11,8 +11,7 @@ and the target A1000 (CUDA) run identical code.
 
 import ollama
 
-# The single place the vision-model choice lives.
-VLM_MODEL = "gemma3:4b"
+from config import VLM_MODEL  # vision-model choice (RAG_VLM_MODEL); swap per machine
 
 # Robustness: a runaway generation on one bad table image once froze the whole
 # 217-table build. Two guards: cap the output length (a transcription is short),

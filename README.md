@@ -124,11 +124,60 @@ Three sentences that capture it:
 
 ---
 
+## Setup & running
+
+Plain Python + [Ollama](https://ollama.com) (local vision + language models) + ChromaDB. Runs on macOS (Metal), Windows/Linux (CUDA), or CPU-only.
+
+**1. Install**
+```bash
+python -m venv venv
+# macOS/Linux: source venv/bin/activate   |   Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**2. Pull the local models (via Ollama)**
+```bash
+ollama pull gemma3:4b                     # VLM (table / figure transcription)
+ollama pull qwen2.5:7b-instruct-q4_K_M    # answer LLM
+```
+
+**3. Configure for your machine** — everything machine-specific lives in `src/config.py`, each value overridable by an env var (defaults reproduce the dev setup):
+
+| Env var | Default | What it does |
+|---|---|---|
+| `RAG_PDF_PATH` | `data/pdfs/mil-std-810h.pdf` | source PDF |
+| `RAG_CHROMA_DIR` | `data/chroma` | vector store |
+| `RAG_DEVICE` | `cpu` | embedder device: `cpu` / `cuda` / `mps` (Ollama picks its own GPU) |
+| `RAG_VLM_MODEL` | `gemma3:4b` | vision model (Ollama tag) |
+| `RAG_LLM_MODEL` | `qwen2.5:7b-instruct-q4_K_M` | answer model |
+| `RAG_RENDER_DPI` | `200` | table-image resolution — lower = faster / less VRAM, blurrier |
+
+Per-machine examples:
+```bash
+# Windows + 6GB RTX 3060  (gemma3:4b fits; qwen-VL won't)
+set RAG_DEVICE=cuda& set RAG_VLM_MODEL=gemma3:4b& set RAG_RENDER_DPI=150
+# Windows + 8GB RTX 5050  (try the stronger VLM, lower DPI to fit)
+set RAG_DEVICE=cuda& set RAG_VLM_MODEL=qwen2.5vl:7b& set RAG_RENDER_DPI=150
+```
+
+**4. Build the index and ask questions** (from `src/`)
+```bash
+python ingest.py            # text + tables
+python ingest.py vlm        # text + tables + per-row VLM table chunks (slower, one vision call per table)
+python answer.py "What does ASD(Peak) mean?"   # grounded, cited answer
+python eval_retrieval.py hard                  # retrieval metrics (Hit@k / MRR)
+python eval_answer.py hard                     # answer metrics (value / citation / abstention)
+```
+
+---
+
 ## Current status
 
-This project is at the start of its build phase. The architecture above is the design — defended in a first project review — and the next several weeks will be spent building it one phase at a time, with each phase measured against a hand-built evaluation set before the next phase begins.
+The born-digital pipeline is **built and measured end-to-end**: PDF → routed extraction (prose + tables, with optional VLM table transcription) → unified ChromaDB index → grounded, cited answers, all fully local.
 
-This document will evolve as the system does. Components I haven't built yet are described in the design language above; once they're working, this overview will be replaced with measurements, examples, and concrete results.
+On an independent, hand-built **HARD** evaluation set (questions authored from the document, not from the chunks): **retrieval Hit@5 1.00 / MRR 0.764**, and **answer value 0.80 / citation 0.65** with reliable abstention on unanswerable questions. Tables are the known frontier — extensively investigated (see `findings.md`).
+
+Engineering decisions, observed truths, dead-ends, and the running evaluation are logged in `findings.md`, `deferred.md`, and `defense_qa.md`. **Phase 2** — the figures pipeline (the same `render → VLM → chunk` pattern) and the scanned/OCR path — is next.
 
 ---
 

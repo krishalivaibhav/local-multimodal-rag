@@ -15,9 +15,11 @@ Why this shape:
 
 import ollama
 
-# The single place the model choice lives. Swap target later by changing this
-# string, e.g. "llama3.1:8b-instruct-q4_K_M" if Qwen is ever disallowed.
-MODEL = "qwen2.5:7b-instruct-q4_K_M"
+from config import LLM_MODEL
+
+# The single place the model choice lives (config.LLM_MODEL / RAG_LLM_MODEL).
+# Swap target by setting that env var, e.g. "llama3.1:8b-instruct-q4_K_M".
+MODEL = LLM_MODEL
 
 
 def generate(messages, model=MODEL, temperature=0.0):

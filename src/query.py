@@ -9,7 +9,7 @@ generation (LLM) comes later.
 import chromadb
 from sentence_transformers import SentenceTransformer
 
-from ingest import CHROMA_DIR, COLLECTION_NAME, EMBED_MODEL
+from ingest import CHROMA_DIR, COLLECTION_NAME, EMBED_MODEL, DEVICE
 
 # bge-small-en-v1.5 is ASYMMETRIC: this instruction is prepended to the QUERY
 # only, never to the stored documents (which were embedded as-is at ingest).
@@ -35,7 +35,7 @@ def search(question, k=5, table_boost=None):
     The returned distances are the ORIGINAL cosine distances (boost affects order only).
     """
     boost = TABLE_BOOST if table_boost is None else table_boost
-    model = SentenceTransformer(EMBED_MODEL, device="cpu")
+    model = SentenceTransformer(EMBED_MODEL, device=DEVICE)
     q_emb = model.encode(
         QUERY_INSTRUCTION + question,
         normalize_embeddings=True,        # match the normalised stored vectors
