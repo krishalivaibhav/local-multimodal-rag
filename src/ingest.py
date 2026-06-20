@@ -294,10 +294,13 @@ def build_all_chunks(pdf_path, source_file, use_vlm=False):
     transcription chunk (slower: one vision call per real table). Returns (chunks, stats).
     """
     from collections import defaultdict
+    # lazy import: figures.py imports from ingest, so importing it at module top
+    # would be a cycle. Imported here only when needed.
+    from figures import extract_figure_chunks
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     chunks = []
-    stats = {"skip": defaultdict(int), "vlm_fail": 0}
+    stats = {"skip": defaultdict(int), "vlm_fail": 0, "figure_fail": 0}
 
     with fitz.open(pdf_path) as doc, pdfplumber.open(pdf_path) as pdf:
         n_pages = doc.page_count
@@ -308,6 +311,9 @@ def build_all_chunks(pdf_path, source_file, use_vlm=False):
             chunks += extract_table_chunks(
                 pdf.pages[page_index], doc[page_index], page_number,
                 source_file, stats, use_vlm=use_vlm)
+            if use_vlm:                          # figures need the VLM (caption)
+                chunks += extract_figure_chunks(
+                    doc[page_index], page_number, source_file, stats)
             # progress heartbeat (flush so it streams to a terminal / tee'd log,
             # especially during the slow use_vlm phase which is otherwise silent)
             if page_index % 25 == 0 or page_number == n_pages:
@@ -391,7 +397,8 @@ if __name__ == "__main__":
         by_type = Counter(c.source_type for c in chunks)
         print("  " + ", ".join(f"{t}={n}" for t, n in by_type.most_common()))
         print(f"  skipped={dict(stats['skip'])}"
-              + (f"  vlm_fail={stats['vlm_fail']}" if use_vlm else ""))
+              + (f"  vlm_fail={stats['vlm_fail']}  figure_fail={stats['figure_fail']}"
+                 if use_vlm else ""))
         all_chunks += chunks
 
     print(f"\n=== built {len(all_chunks)} chunks from {len(pdfs)} PDF(s) "

@@ -99,21 +99,31 @@ def figure_context(page, region, margin=60):
     return " ".join(t for _, t in found)
 
 
-def extract_figure_chunks(page, page_number, source_file):
-    """Cluster -> render -> caption -> chunk. One figure_caption Chunk per region."""
+def extract_figure_chunks(page, page_number, source_file, stats=None):
+    """Cluster -> render -> caption -> chunk. One figure_caption Chunk per region.
+
+    Per-figure try/except (finding #23): one bad figure (VLM hang / failure) must
+    not wedge a full-corpus build; it is skipped and counted in stats['figure_fail'].
+    """
     chunks = []
     for fig_idx, region in enumerate(cluster_image_regions(page)):
-        image_path = render_table_image(page, region, path="/tmp/_vlm_figure.png")
-        context = figure_context(page, region)
-        description = transcribe_figure(image_path, context=context)
-        text = f"{context}\n{description}".strip() if context else description
-        chunks.append(Chunk(
-            text=text,
-            source_file=source_file,
-            page_number=page_number,
-            source_type="figure_caption",
-            block_idx=fig_idx,                 # figure index on the page
-        ))
+        try:
+            image_path = render_table_image(page, region, path="/tmp/_vlm_figure.png")
+            context = figure_context(page, region)
+            description = transcribe_figure(image_path, context=context)
+            text = f"{context}\n{description}".strip() if context else description
+            chunks.append(Chunk(
+                text=text,
+                source_file=source_file,
+                page_number=page_number,
+                source_type="figure_caption",
+                block_idx=fig_idx,             # figure index on the page
+            ))
+        except Exception as e:
+            if stats is not None:
+                stats["figure_fail"] += 1
+            else:
+                print(f"  figure fail p{page_number} f{fig_idx}: {type(e).__name__}")
     return chunks
 
 
