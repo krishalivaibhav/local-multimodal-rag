@@ -16,9 +16,25 @@ from ingest import CHROMA_DIR, COLLECTION_NAME, EMBED_MODEL
 # Getting this backwards quietly degrades retrieval.
 QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
+# Chunk types that carry tabular content. The reranker can favour these on table
+# questions, where the right value often sits just below a prose chunk (#22/#24).
+TABLE_TYPES = {"table_row", "table_flat", "table_vlm", "table_vlm_row"}
 
-def search(question, k=5):
-    """Embed `question` and return Chroma's top-k hits for it."""
+# Cosine-distance reduction applied to table chunks during rerank. 0.0 = plain
+# cosine retrieval (no reranking). Tunable; set per-call or via this default.
+TABLE_BOOST = 0.0
+
+
+def search(question, k=5, table_boost=None):
+    """Embed `question`, retrieve top-k, optionally reranked to favour table chunks.
+
+    When the boost > 0, over-fetch candidates and subtract the boost from the cosine
+    distance of table_* chunks before taking the top-k -- lifting a table chunk that
+    sits just below prose on a tabular question, WITHOUT dropping the prose chunks
+    (they remain, complementary, #20). boost == 0 reproduces plain cosine retrieval.
+    The returned distances are the ORIGINAL cosine distances (boost affects order only).
+    """
+    boost = TABLE_BOOST if table_boost is None else table_boost
     model = SentenceTransformer(EMBED_MODEL, device="cpu")
     q_emb = model.encode(
         QUERY_INSTRUCTION + question,
@@ -27,7 +43,22 @@ def search(question, k=5):
 
     client = chromadb.PersistentClient(path=CHROMA_DIR)
     collection = client.get_collection(COLLECTION_NAME)
-    return collection.query(query_embeddings=[q_emb], n_results=k)
+
+    if not boost:
+        return collection.query(query_embeddings=[q_emb], n_results=k)
+
+    fetch = max(k, 20)                     # over-fetch, then rerank down to k
+    res = collection.query(query_embeddings=[q_emb], n_results=fetch)
+    items = list(zip(res["ids"][0], res["documents"][0],
+                     res["metadatas"][0], res["distances"][0]))
+
+    def adjusted(meta, dist):
+        return dist - boost if meta.get("source_type") in TABLE_TYPES else dist
+
+    items.sort(key=lambda it: adjusted(it[2], it[3]))
+    top = items[:k]
+    return {"ids": [[it[0] for it in top]], "documents": [[it[1] for it in top]],
+            "metadatas": [[it[2] for it in top]], "distances": [[it[3] for it in top]]}
 
 
 if __name__ == "__main__":
