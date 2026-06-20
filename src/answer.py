@@ -57,6 +57,8 @@ def render_citation(meta):
         loc = f"page {page}, table {meta.get('table_idx')}, row {meta.get('row_idx')}"
     elif stype == "table_flat":
         loc = f"page {page}, table {meta.get('table_idx')} (flattened)"
+    elif stype == "table_list":
+        loc = f"page {page}, table {meta.get('table_idx')} (list)"
     elif stype == "table_vlm":
         loc = f"page {page}, table {meta.get('table_idx')} (VLM transcription)"
     elif stype == "table_vlm_row":

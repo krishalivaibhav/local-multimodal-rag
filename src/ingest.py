@@ -6,6 +6,7 @@ with citation metadata on every chunk. Figures and scanned/OCR are out of
 scope for v1. See findings.md and deferred.md for the full design.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -19,7 +20,7 @@ from vlm import transcribe_table
 from config import (PDF_PATH, CHROMA_DIR, COLLECTION_NAME, EMBED_MODEL,
                     DEVICE, RENDER_DPI)
 
-SourceType = Literal["prose", "table_row", "table_flat", "table_vlm",
+SourceType = Literal["prose", "table_row", "table_flat", "table_list", "table_vlm",
                      "table_vlm_row", "figure_caption"]
 
 
@@ -62,6 +63,8 @@ class Chunk:
             return f"{base}:p{self.page_number}:t{self.table_idx}:r{self.row_idx}"
         if self.source_type == "table_flat":
             return f"{base}:p{self.page_number}:t{self.table_idx}:flat"
+        if self.source_type == "table_list":
+            return f"{base}:p{self.page_number}:t{self.table_idx}:list"
         if self.source_type == "table_vlm":
             return f"{base}:p{self.page_number}:t{self.table_idx}:vlm"
         if self.source_type == "table_vlm_row":
@@ -167,6 +170,74 @@ def build_flat_text(rows, page_number):
     return "\n".join(lines)
 
 
+# A table CAPTION line: "TABLE 6.1-2 ...", "Table 515.6A-II. ...". Used to give a flat
+# list chunk context AND as the deterministic list signal below.
+_TABLE_CAPTION_RE = re.compile(r"^\s*[Tt][Aa][Bb][Ll][Ee]\s+[\dA-Za-z.\-]+")
+
+# Deterministic LIST signal (finding #37, option b): a caption like "Examples of Types of
+# Facilities" / "List of ..." marks a table whose cells are independent items, not a
+# relational grid. Deliberately CONSERVATIVE -- only the strong plural signals ("examples
+# of", "list/lists of"). NOT singular "example of" (a real table is titled "Example of
+# Program/Project Types") nor "types of" (too common in relational titles). The bias is
+# intentional: a missed list still gets its flat chunk via dual-representation (option d),
+# but a FALSE positive would suppress a real table's relational rows -- the costly error.
+_LIST_CAPTION_RE = re.compile(r"\b(examples\s+of|lists?\s+of)\b", re.I)
+
+
+def find_table_caption(fpage, bbox, max_gap=60):
+    """The 'TABLE X.Y-Z ...' caption line just above a table, or '' if none.
+
+    Scans fitz text lines, keeps those whose baseline sits ABOVE the table top within
+    max_gap points and horizontally overlap the table, and returns the nearest such line
+    that starts with 'TABLE <id>'. Used to (a) prefix a flattened list chunk with context
+    and (b) decide whether the table is really a list (looks_like_list).
+    """
+    x0, top, x1, bottom = bbox
+    best = None
+    for block in fpage.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            lx0, ly0, lx1, ly1 = line["bbox"]
+            if ly1 <= top and (top - ly1) <= max_gap and lx1 > x0 and lx0 < x1:
+                text = "".join(span["text"] for span in line["spans"]).strip()
+                if _TABLE_CAPTION_RE.match(text):
+                    if best is None or ly1 > best[0]:   # nearest above the table wins
+                        best = (ly1, text)
+    return best[1] if best else ""
+
+
+def looks_like_list(caption):
+    """True if a table caption signals a list of examples rather than a relational table."""
+    return bool(caption) and bool(_LIST_CAPTION_RE.search(caption))
+
+
+def build_list_text(caption, rows, column_major=True):
+    """Flatten a table's cells into ONE clean list chunk: '<caption>: a; b; c; ...'.
+
+    The LIST representation (dual-representation, finding #37). A table whose cells are
+    independent items (a list typeset in columns, e.g. NASA Table 6.1-2 "Examples of Types
+    of Facilities") carries no row/column relationship, so the relational "header: cell"
+    format mangles it ("Communications and Tracking Labs: Propulsion Test Stands"). Here we
+    collect every non-empty cell in column-major order (the order a multi-column list flows
+    in) and prefix the caption for context. Emitted alongside the relational chunks: for a
+    real table it is redundant recall, for a list it is the only correct representation.
+    """
+    n_rows = len(rows)
+    n_cols = max((len(r) for r in rows), default=0)
+    if column_major:
+        cells = [rows[r][c] for c in range(n_cols) for r in range(n_rows)
+                 if c < len(rows[r])]
+    else:
+        cells = [cell for row in rows for cell in row]
+    items, seen = [], set()
+    for cell in cells:                          # de-dupe, preserve order
+        s = str(cell or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            items.append(s)
+    body = "; ".join(items)
+    return f"{caption}: {body}" if caption else body
+
+
 def render_table_image(fpage, bbox, path="/tmp/_vlm_table.png", dpi=RENDER_DPI, pad=4):
     """Rasterise a table's bbox region to a PNG for the VLM. fitz and pdfplumber
     share the page coordinate system, so the pdfplumber bbox is a fitz clip rect
@@ -254,7 +325,13 @@ def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use
         reason = malformed_reason(rows)
         is_real = reason is None or reason == "col_disjoint"
 
-        if use_vlm and is_real:                 # multimodal: VLM -> per-row chunks
+        # finding #37: is this a LIST typeset as a table (no relational structure)?
+        caption = find_table_caption(fpage, table.bbox)
+        as_list = looks_like_list(caption)      # deterministic caption gate (option b)
+
+        # don't send a list to the VLM per-row path either -- the "header: cell" format
+        # would mangle it the same way the text path does.
+        if use_vlm and is_real and not as_list:  # multimodal: VLM -> per-row chunks
             try:                                # one bad table must not wedge the build
                 image_path = render_table_image(fpage, table.bbox)
                 md = transcribe_table(image_path)
@@ -267,18 +344,30 @@ def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use
                 else:
                     print(f"  VLM fail p{page_number} t{table_idx}: {type(e).__name__}")
 
-        if reason is None:                      # well-formed -> format Y
-            header = rows[0]
-            # data rows start at table-row index 1 (row 0 is the header)
-            for row_idx, row in enumerate(rows[1:], start=1):
-                chunks.append(Chunk(
-                    text=build_row_text(header, row),
-                    source_file=source_file,
-                    page_number=page_number,
-                    source_type="table_row",
-                    table_idx=table_idx,
-                    row_idx=row_idx,
-                ))
+        if reason is None:                      # well-formed
+            # dual-representation (finding #37, option d): ALWAYS emit one clean flat LIST
+            # chunk (caption + all cells) as a recall net -- the only correct rep for a
+            # list, harmless redundant recall for a real relational table.
+            chunks.append(Chunk(
+                text=build_list_text(caption, rows),
+                source_file=source_file,
+                page_number=page_number,
+                source_type="table_list",
+                table_idx=table_idx,
+            ))
+            if not as_list:                     # relational table -> per-row format Y
+                header = rows[0]
+                # data rows start at table-row index 1 (row 0 is the header)
+                for row_idx, row in enumerate(rows[1:], start=1):
+                    chunks.append(Chunk(
+                        text=build_row_text(header, row),
+                        source_file=source_file,
+                        page_number=page_number,
+                        source_type="table_row",
+                        table_idx=table_idx,
+                        row_idx=row_idx,
+                    ))
+            # if as_list: skip per-row -- "header: cell" would invent a fake header
         elif reason == "col_disjoint":          # malformed -> flat format B
             chunks.append(Chunk(
                 text=build_flat_text(rows, page_number),
