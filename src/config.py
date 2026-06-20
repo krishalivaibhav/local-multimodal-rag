@@ -49,3 +49,7 @@ RENDER_DPI = int(_env("RAG_RENDER_DPI", "200"))
 # RAG_HYBRID=1 routes retrieval through dense+BM25 reciprocal-rank fusion (hybrid.py)
 # instead of plain dense cosine. Off by default.
 HYBRID = _env("RAG_HYBRID", "").lower() in ("1", "true", "yes")
+
+# RAG_PARENT_TABLES=1 expands a retrieved table ROW into its full parent TABLE before
+# the answer LLM sees it (small-to-big retrieval, deferred #26). Off by default.
+PARENT_TABLES = _env("RAG_PARENT_TABLES", "").lower() in ("1", "true", "yes")

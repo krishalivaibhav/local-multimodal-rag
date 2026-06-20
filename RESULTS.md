@@ -51,7 +51,8 @@ first time and surfaced -- then fixed -- real bugs.
 | Plain dense | 0.55 | 0.45 | near-duplicate 810H out-competes 810G; doc name in query ignored |
 | + document routing | 0.64 | **0.55** | alias router -> scope to the named doc; citation precision -> 1.00 |
 | + hybrid (dense+BM25) | 0.91\* | 0.45 | \*inflated by repeated page-header chunks |
-| + header de-noise | **0.73** (honest) | **0.55** | dropped ~20k tiny header/footer chunks; hardest case (immersion) fixed |
+| + header de-noise | **0.73** (honest) | 0.55 | dropped ~20k tiny header/footer chunks; hardest case (immersion) fixed |
+| + parent-document tables | 0.73 | **0.64** | small-to-big: retrieve a row, answer from the whole table; table case recovered, **precision 1.00** |
 
 - **Generalization holds:** NASA (genuinely different doc) answers ~5/6 with the *same*
   heuristics -- not overfit to MIL-STD.
@@ -66,10 +67,13 @@ first time and surfaced -- then fixed -- real bugs.
 |---|---|
 | Reading (transcribe a table) | **Solved** -- local VLM (gemma3:4b/gemma4/qwen2.5-vl) reads ruled, unruled and complex tables |
 | Detection (find borderless tables) | **Solved** -- VLM-as-parser catches tables pdfplumber misses |
-| Representation-for-QA (chunk so the model finds the right cell) | **Open** -- per-row picks the wrong row for ambiguous queries; whole-table doesn't retrieve. Hard in the field too. |
+| Representation-for-QA (chunk so the model finds the right cell) | **Largely cracked** -- small-to-big retrieval (retrieve a row, answer from the whole parent table) fixed the "wrong row" problem (finding #36) |
 
-Best measured: **per-row VLM chunks took tables 2/7 -> 3/7** (single doc). The bottleneck is
-*representation*, not reading. (findings #21/#22/#24/#33/#35)
+Best measured: **per-row VLM chunks took tables 2/7 -> 3/7** (single doc); **small-to-big
+parent-document retrieval recovered the multi-doc table case (precision 1.00)**. The remaining
+table misses are now separate problems -- retrieval (a row not surfacing) and reading (a
+complex nested-header table garbled, needs a stronger VLM) -- not the representation wall.
+(findings #21/#22/#24/#33/#35/#36)
 
 ## Figures (Phase 2, validated)
 

@@ -63,9 +63,37 @@ def render_citation(meta):
         loc = f"page {page}, table {meta.get('table_idx')}, row {meta.get('row_idx')} (VLM)"
     elif stype == "figure_caption":
         loc = f"page {page}, figure {meta.get('block_idx')}"
+    elif stype == "table":                     # parent table (small-to-big, #26)
+        loc = f"page {page}, table {meta.get('table_idx')}"
     else:
         loc = f"page {page}"
     return f"{doc} · {loc}" if doc else loc
+
+
+_TABLE_ROW_TYPES = {"table_row", "table_vlm_row"}
+
+
+def expand_parent_tables(metadatas, documents):
+    """Replace each retrieved table ROW with its full parent TABLE (deduped), so the
+    answer LLM sees the whole table and can extract the right cell (small-to-big, #26).
+    Non-table chunks pass through unchanged."""
+    from query import fetch_table
+    out_m, out_d, seen = [], [], set()
+    for m, d in zip(metadatas, documents):
+        if m.get("source_type") in _TABLE_ROW_TYPES:
+            key = (m.get("source_file"), m.get("page_number"), m.get("table_idx"))
+            if key in seen:                    # this table already expanded
+                continue
+            seen.add(key)
+            pm = dict(m)
+            pm["source_type"] = "table"
+            pm.pop("row_idx", None)
+            out_m.append(pm)
+            out_d.append(fetch_table(*key))
+        else:
+            out_m.append(m)
+            out_d.append(d)
+    return out_m, out_d
 
 
 def format_sources(metadatas, documents):
@@ -130,6 +158,10 @@ def answer_question(question, k=5):
     res = retrieve(question, k=k, source_file=route_query(question))
     metadatas = res["metadatas"][0]
     documents = res["documents"][0]
+    # small-to-big (#26): expand a retrieved table row into its full parent table
+    from config import PARENT_TABLES
+    if PARENT_TABLES:
+        metadatas, documents = expand_parent_tables(metadatas, documents)
 
     messages, citation_map = build_messages(question, metadatas, documents)
     answer_text = generate(messages)

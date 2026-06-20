@@ -67,6 +67,20 @@ def route_query(question, source_files=None):
     return matches[0] if len(matches) == 1 else None
 
 
+def fetch_table(source_file, page, table_idx):
+    """Reconstruct a table's FULL text from all its row chunks, sorted by row -- the
+    'big' in small-to-big retrieval (deferred #26). We retrieve a findable row, then
+    hand the answer LLM the whole table so it can pick the right cell."""
+    col = chromadb.PersistentClient(path=CHROMA_DIR).get_collection(COLLECTION_NAME)
+    got = col.get(include=["documents", "metadatas"],
+                  where={"$and": [{"source_file": source_file},
+                                  {"page_number": page},
+                                  {"table_idx": table_idx}]})
+    rows = sorted(zip(got["metadatas"], got["documents"]),
+                  key=lambda md: md[0].get("row_idx") or 0)
+    return "\n".join(d for _, d in rows)
+
+
 def retrieve(question, k=5, source_file=None):
     """Retrieval entry point: dense+BM25 hybrid if config.HYBRID, else plain dense.
     Lazy imports so neither config nor hybrid is loaded unless needed."""
