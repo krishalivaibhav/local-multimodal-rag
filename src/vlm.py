@@ -60,6 +60,23 @@ def transcribe_table(image_path, model=VLM_MODEL, temperature=0.0):
     return _ask(image_path, TABLE_PROMPT, model, temperature)
 
 
+# VLM-as-parser: detect AND read tables from a whole page, so we catch BORDERLESS
+# tables that the geometric detector (pdfplumber) misses entirely (finding #34/NASA
+# p48 fell to garbled prose). The VLM sees the table whether or not it has rule lines.
+PAGE_TABLE_PROMPT = (
+    "This is a page from a technical document. Transcribe ONLY the data table(s) on "
+    "it to GitHub-flavored markdown -- one markdown table per table, separated by a "
+    "blank line. Preserve every row, column and header exactly, including units; if a "
+    "header is grouped, give each sub-column a complete label. Ignore body prose, "
+    "headers/footers and figures. If the page contains no data table, output exactly: NONE"
+)
+
+
+def transcribe_page_tables(image_path, model=VLM_MODEL, temperature=0.0):
+    """VLM-as-parser: extract any tables on a full page to markdown (or 'NONE')."""
+    return _ask(image_path, PAGE_TABLE_PROMPT, model, temperature)
+
+
 def transcribe_figure(image_path, context="", model=VLM_MODEL, temperature=0.0):
     """Render -> text: describe a figure region for retrieval. `context` (the nearby
     caption / section heading) is appended so the model is grounded, not guessing."""
