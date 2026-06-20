@@ -28,7 +28,7 @@ _TAG_RE = re.compile(r"\[S(\d+)\]")
 
 # Stable rules. Kept short on purpose: a long system prompt dilutes attention and
 # every rule here is load-bearing.
-SYSTEM_PROMPT = """You are a technical assistant answering questions about a single document.
+SYSTEM_PROMPT = """You are a technical assistant answering questions from a set of source documents.
 
 Follow these rules exactly:
 1. Use ONLY the information in the SOURCES provided in the user message. Do not use any prior or outside knowledge.
@@ -42,24 +42,30 @@ ABSTAIN = "The provided sources do not contain this information."
 
 
 def render_citation(meta):
-    """Human-readable location for a chunk, from its metadata, by source_type.
+    """Human-readable citation for a chunk, from its metadata, by source_type.
 
     This is what WE show the user as the real citation; it is NOT shown to the
     model. Mirrors the location fields the ingest pipeline threads onto chunks.
+    The document name is ALWAYS prefixed -- in a multi-document corpus "page 501"
+    is ambiguous (e.g. the near-duplicate 810G vs 810H), so every citation must
+    name its source document.
     """
+    doc = meta.get("source_file", "")
     page = meta.get("page_number")
     stype = meta.get("source_type")
     if stype == "table_row":
-        return f"page {page}, table {meta.get('table_idx')}, row {meta.get('row_idx')}"
-    if stype == "table_flat":
-        return f"page {page}, table {meta.get('table_idx')} (flattened)"
-    if stype == "table_vlm":
-        return f"page {page}, table {meta.get('table_idx')} (VLM transcription)"
-    if stype == "table_vlm_row":
-        return f"page {page}, table {meta.get('table_idx')}, row {meta.get('row_idx')} (VLM)"
-    if stype == "figure_caption":
-        return f"page {page}, figure {meta.get('block_idx')}"
-    return f"page {page}"
+        loc = f"page {page}, table {meta.get('table_idx')}, row {meta.get('row_idx')}"
+    elif stype == "table_flat":
+        loc = f"page {page}, table {meta.get('table_idx')} (flattened)"
+    elif stype == "table_vlm":
+        loc = f"page {page}, table {meta.get('table_idx')} (VLM transcription)"
+    elif stype == "table_vlm_row":
+        loc = f"page {page}, table {meta.get('table_idx')}, row {meta.get('row_idx')} (VLM)"
+    elif stype == "figure_caption":
+        loc = f"page {page}, figure {meta.get('block_idx')}"
+    else:
+        loc = f"page {page}"
+    return f"{doc} · {loc}" if doc else loc
 
 
 def format_sources(metadatas, documents):
