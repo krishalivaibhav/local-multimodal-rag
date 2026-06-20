@@ -16,7 +16,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sweep_tables import malformed_reason
 from vlm import transcribe_table
 
-SourceType = Literal["prose", "table_row", "table_flat", "table_vlm", "figure_caption"]
+SourceType = Literal["prose", "table_row", "table_flat", "table_vlm",
+                     "table_vlm_row", "figure_caption"]
 
 PDF_PATH = "/Users/vaibhavkrishali/Desktop/projects/RAG over pdf DRDO/code/data/pdfs/mil-std-810h.pdf"
 CHROMA_DIR = "/Users/vaibhavkrishali/Desktop/projects/RAG over pdf DRDO/code/data/chroma"
@@ -65,6 +66,8 @@ class Chunk:
             return f"{base}:p{self.page_number}:t{self.table_idx}:flat"
         if self.source_type == "table_vlm":
             return f"{base}:p{self.page_number}:t{self.table_idx}:vlm"
+        if self.source_type == "table_vlm_row":
+            return f"{base}:p{self.page_number}:t{self.table_idx}:vlmr{self.row_idx}"
         # figure_caption deferred to v2
         return f"{base}:p{self.page_number}:fig"
 
@@ -165,6 +168,60 @@ def render_table_image(fpage, bbox, path="/tmp/_vlm_table.png", dpi=200, pad=4):
     return path
 
 
+def parse_vlm_table(md):
+    """Parse a VLM markdown table into (header_block, data_rows).
+
+    header_block = the header row plus the '|---|' separator, kept verbatim so each
+    per-row chunk can re-emit a valid 1-row markdown table. Returns [] for header_block
+    when the table has no separator/header (e.g. a 'Continued' table whose header is on
+    the previous page). Strips ``` fences; keeps only lines containing '|'.
+    """
+    rows = [l.strip() for l in md.splitlines() if "|" in l]
+
+    def is_separator(line):
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        cells = [c for c in cells if c]
+        return bool(cells) and all(set(c) <= set("-: ") and "-" in c for c in cells)
+
+    sep_idx = next((i for i, l in enumerate(rows) if is_separator(l)), None)
+    if sep_idx is None:
+        return [], rows
+    return rows[:sep_idx + 1], rows[sep_idx + 1:]
+
+
+def _md_cells(line):
+    """Split a markdown table row '| a | b | c |' into ['a','b','c']."""
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def build_vlm_row_chunks(md, page_number, source_file, table_idx):
+    """Per-row chunks from a VLM markdown table (iteration 2, findings #21/#22/#24).
+
+    Each data row becomes a Format-Y-style "header: cell. header: cell." chunk, pairing
+    the VLM's CORRECT headers (it already flattens multi-row headers, #20) with the row's
+    cells. Three wins combined: per-row granularity (fixes whole-table dilution, #22),
+    correct columns (fixes the text path's misreads, #20), and natural key:value text that
+    embeds well -- raw markdown pipes retrieve badly (#24). Headerless rows (continued
+    tables, e.g. p543) fall back to comma-joined values.
+    """
+    header_block, data = parse_vlm_table(md)
+    headers = _md_cells(header_block[0]) if header_block else []
+    chunks = []
+    for row_idx, row in enumerate(data, start=1):
+        cells = _md_cells(row)
+        if not any(cells):                         # skip blank rows
+            continue
+        if headers and len(headers) == len(cells):
+            text = ". ".join(f"{h}: {c}" for h, c in zip(headers, cells))
+        else:                                      # headerless / ragged -> values only
+            text = ", ".join(c for c in cells if c)
+        chunks.append(Chunk(
+            text=text, source_file=source_file, page_number=page_number,
+            source_type="table_vlm_row", table_idx=table_idx, row_idx=row_idx,
+        ))
+    return chunks
+
+
 def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use_vlm=False):
     """Route each table on a page and build chunks.
 
@@ -187,16 +244,13 @@ def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use
         reason = malformed_reason(rows)
         is_real = reason is None or reason == "col_disjoint"
 
-        if use_vlm and is_real:                 # multimodal: VLM transcription
+        if use_vlm and is_real:                 # multimodal: VLM -> per-row chunks
             try:                                # one bad table must not wedge the build
                 image_path = render_table_image(fpage, table.bbox)
-                chunks.append(Chunk(
-                    text=transcribe_table(image_path),
-                    source_file=source_file,
-                    page_number=page_number,
-                    source_type="table_vlm",
-                    table_idx=table_idx,
-                ))
+                md = transcribe_table(image_path)
+                # per-row key:value chunks (finding #24): whole-table VLM chunks don't
+                # retrieve (#22), per-row does, and key:value text beats markdown pipes.
+                chunks += build_vlm_row_chunks(md, page_number, source_file, table_idx)
             except Exception as e:
                 if stats is not None:
                     stats["vlm_fail"] += 1
