@@ -29,6 +29,19 @@ TABLE_TYPES = {"table_row", "table_flat", "table_vlm", "table_vlm_row"}
 TABLE_BOOST = 0.0
 
 
+# The bge embedder, loaded ONCE and cached. search() used to construct a new
+# SentenceTransformer on every call -- slow, and each construction pinged HuggingFace,
+# which crashed air-gapped runs (finding #38). One shared instance fixes both.
+_EMBEDDER = None
+
+
+def _embedder():
+    global _EMBEDDER
+    if _EMBEDDER is None:
+        _EMBEDDER = SentenceTransformer(EMBED_MODEL, device=DEVICE)
+    return _EMBEDDER
+
+
 # --- document router (deferred #23): deterministic alias matching ---
 # Friendly aliases beyond the filename -- crucially the short forms ("810g"/"810h")
 # that distinguish the near-duplicates. New docs get a sensible default alias from
@@ -116,7 +129,7 @@ def search(question, k=5, table_boost=None, source_file=None, query_text=None):
     """
     boost = TABLE_BOOST if table_boost is None else table_boost
     where = {"source_file": source_file} if source_file else None
-    model = SentenceTransformer(EMBED_MODEL, device=DEVICE)
+    model = _embedder()                    # cached; was reloaded per call (finding #38)
     q_emb = model.encode(
         QUERY_INSTRUCTION + (query_text or question),
         normalize_embeddings=True,        # match the normalised stored vectors

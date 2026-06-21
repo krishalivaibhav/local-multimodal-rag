@@ -153,6 +153,7 @@ ollama pull qwen2.5:7b-instruct-q4_K_M    # answer LLM
 | `RAG_RENDER_DPI` | `200` | table-image resolution — lower = faster / less VRAM, blurrier |
 | `RAG_VLM_TIMEOUT` | `90` | per-table VLM timeout (s) — raise for a slower/bigger VLM (e.g. `300` for gemma4) |
 | `RAG_PDFS_DIR` | `data/pdfs` | ingest **every** `*.pdf` here (multi-document corpus) |
+| `RAG_HF_OFFLINE` | `1` | load models from local cache only, never call HuggingFace (air-gap). Set `0` for the one-time model download on a connected machine |
 
 Retrieval/answer flags (off by default; each is a measured, optional improvement):
 

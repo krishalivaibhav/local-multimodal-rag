@@ -34,6 +34,16 @@ def _env(name, default):
     return os.environ.get(name, default)
 
 
+# Air-gap: force the HuggingFace/transformers stack OFFLINE so the embedder loads from the
+# local cache and NEVER calls huggingface.co. A network call crashes an air-gapped run --
+# finding #38: it killed an offline eval when WiFi was down. Default ON (this project is
+# air-gapped by design); set RAG_HF_OFFLINE=0 for the ONE-TIME model download on a connected
+# machine. Set here, before sentence-transformers loads any model.
+_HF_OFFLINE = _env("RAG_HF_OFFLINE", "1")
+os.environ["HF_HUB_OFFLINE"] = _HF_OFFLINE
+os.environ["TRANSFORMERS_OFFLINE"] = _HF_OFFLINE
+
+
 PDF_PATH = _env("RAG_PDF_PATH", str(_ROOT / "data" / "pdfs" / "mil-std-810h.pdf"))
 PDFS_DIR = _env("RAG_PDFS_DIR", str(_ROOT / "data" / "pdfs"))   # ingest ALL *.pdf here
 CHROMA_DIR = _env("RAG_CHROMA_DIR", str(_ROOT / "data" / "chroma"))
