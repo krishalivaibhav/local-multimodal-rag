@@ -5,3 +5,4 @@ sentence-transformers==5.5.1
 chromadb==1.5.9
 ollama==0.6.2
 rank-bm25==0.2.2
+gradio>=4.44            # local chat UI (src/app.py); thin front-end over answer_question
