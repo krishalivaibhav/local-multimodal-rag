@@ -52,8 +52,13 @@ first time and surfaced -- then fixed -- real bugs.
 | + document routing | 0.64 | **0.55** | alias router -> scope to the named doc; citation precision -> 1.00 |
 | + hybrid (dense+BM25) | 0.91\* | 0.45 | \*inflated by repeated page-header chunks |
 | + header de-noise | **0.73** (honest) | 0.55 | dropped ~20k tiny header/footer chunks; hardest case (immersion) fixed |
-| + parent-document tables | 0.73 | **0.64** | small-to-big: retrieve a row, answer from the whole table; table case recovered, **precision 1.00** |
+| + parent-document tables | 0.73 | 0.64 | small-to-big: retrieve a row, answer from the whole table; table case recovered, **precision 1.00** |
+| + list-vs-table (`table_list`) | 0.73 | **0.73** | dual-representation + caption gate; **p130 recovered** (a list mis-read as a table); precision **1.00**, F1 0.78 -> **0.84** (finding #37) |
 
+- **List-vs-table fix (finding #37) is net-positive on BOTH sets, zero regressions:** MULTIDOC
+  value 0.64 -> **0.73** (p130 recovered), and a HARD A/B on the *same* multi-doc store
+  isolated table_list at 0.65 -> **0.70** (p543 recovered). The flat `table_list` chunk is a
+  recall net that also helps real tables, not only lists.
 - **Generalization holds:** NASA (genuinely different doc) answers ~5/6 with the *same*
   heuristics -- not overfit to MIL-STD.
 - **Cross-document citations** now name the source document (the single-doc setup hid this
@@ -67,13 +72,15 @@ first time and surfaced -- then fixed -- real bugs.
 |---|---|
 | Reading (transcribe a table) | **Solved** -- local VLM (gemma3:4b/gemma4/qwen2.5-vl) reads ruled, unruled and complex tables |
 | Detection (find borderless tables) | **Solved** -- VLM-as-parser catches tables pdfplumber misses |
-| Representation-for-QA (chunk so the model finds the right cell) | **Largely cracked** -- small-to-big retrieval (retrieve a row, answer from the whole parent table) fixed the "wrong row" problem (finding #36) |
+| Representation-for-QA (chunk so the model finds the right cell) | **Largely cracked** -- small-to-big (#36) fixed the "wrong row" problem; dual-representation + a list-vs-table caption gate (#37) fixed a *list mis-read as a table* and, as a recall net, a real table too |
 
 Best measured: **per-row VLM chunks took tables 2/7 -> 3/7** (single doc); **small-to-big
-parent-document retrieval recovered the multi-doc table case (precision 1.00)**. The remaining
-table misses are now separate problems -- retrieval (a row not surfacing) and reading (a
-complex nested-header table garbled, needs a stronger VLM) -- not the representation wall.
-(findings #21/#22/#24/#33/#35/#36)
+parent-document retrieval recovered the multi-doc table case** (finding #36); **list-vs-table
+dual-representation recovered two more -- p130 (a list) and p543 (a real table) -- lifting
+MULTIDOC value 0.64 -> 0.73 and HARD 0.65 -> 0.70, precision 1.00, zero regressions** (finding
+#37). The one remaining table miss is now purely a *reading* limit (p410, a complex 3-level
+nested-header table garbled by the small VLM -- needs a stronger VLM / GPU), not representation.
+(findings #21/#22/#24/#33/#35/#36/#37)
 
 ## Figures (Phase 2, validated)
 
