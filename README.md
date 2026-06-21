@@ -151,6 +151,16 @@ ollama pull qwen2.5:7b-instruct-q4_K_M    # answer LLM
 | `RAG_VLM_MODEL` | `gemma3:4b` | vision model (Ollama tag) |
 | `RAG_LLM_MODEL` | `qwen2.5:7b-instruct-q4_K_M` | answer model |
 | `RAG_RENDER_DPI` | `200` | table-image resolution — lower = faster / less VRAM, blurrier |
+| `RAG_VLM_TIMEOUT` | `90` | per-table VLM timeout (s) — raise for a slower/bigger VLM (e.g. `300` for gemma4) |
+| `RAG_PDFS_DIR` | `data/pdfs` | ingest **every** `*.pdf` here (multi-document corpus) |
+
+Retrieval/answer flags (off by default; each is a measured, optional improvement):
+
+| Flag | What it does |
+|---|---|
+| `RAG_HYBRID=1` | dense + BM25 reciprocal-rank-fusion retrieval (finding #33) |
+| `RAG_PARENT_TABLES=1` | small-to-big: expand a retrieved table row to its full parent table (finding #36) |
+| `RAG_HYDE=1` | HyDE query expansion — built, measured **neutral/negative**, kept off (finding #37) |
 
 Per-machine examples:
 ```bash
@@ -177,10 +187,12 @@ python eval_answer.py hard                     # answer metrics (value / citatio
 
 The born-digital pipeline is **built and measured end-to-end**: PDF → routed extraction (prose + tables, with optional VLM table transcription) → unified ChromaDB index → grounded, cited answers, all fully local.
 
-On an independent, hand-built **HARD** evaluation set (questions authored from the document, not from the chunks): **retrieval Hit@5 1.00 / MRR 0.764**, and **answer value 0.80 / citation 0.65** with reliable abstention on unanswerable questions. Tables are the known frontier — extensively investigated (see `findings.md`).
+On an independent, hand-built **HARD** evaluation set (questions authored from the document, not from the chunks): single-document **retrieval Hit@5 1.00 / MRR 0.764**, **answer value 0.80 / citation 0.65** with reliable abstention on unanswerable questions.
 
-Engineering decisions, observed truths, dead-ends, and the running evaluation are logged in `findings.md`, `deferred.md`, and `defense_qa.md`. **Phase 2** — the figures pipeline (the same `render → VLM → chunk` pattern) and the scanned/OCR path — is next.
+The pipeline now runs a **three-document corpus** (810H + 810G + NASA SE Handbook) with deterministic document routing (precision 1.00) and dense+BM25 hybrid retrieval. On that harder multi-document set, **answer value reached 0.73** after the table-representation work: small-to-big parent-table retrieval (finding #36) and a list-vs-table fix that catches *lists mis-read as tables* (finding #37) — recovering two table cases with zero regressions. Tables are now down to a single remaining case (a 3-level nested header that needs a stronger VLM); see `findings.md`.
+
+Engineering decisions, observed truths, dead-ends, and the running evaluation are logged in `findings.md`, `deferred.md`, and `defense_qa.md`. **Phase 2** — the figures pipeline (the same `render → VLM → chunk` pattern) and the scanned/OCR path — is in progress (a full VLM+figures corpus build is running).
 
 ---
 
-*Built as part of a research internship. Approach and architecture are public; data and specific evaluation results are confidential.*
+*Built as part of a research internship. Approach and architecture are public; data and specific evaluation results are confidential.*i j
