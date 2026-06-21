@@ -46,6 +46,12 @@ LLM_MODEL = _env("RAG_LLM_MODEL", "qwen2.5:7b-instruct-q4_K_M")
 
 RENDER_DPI = int(_env("RAG_RENDER_DPI", "200"))
 
+# Per-call VLM HTTP timeout (seconds). Default 90 suits gemma3:4b on the M2; raise it
+# for a bigger/slower VLM (e.g. RAG_VLM_TIMEOUT=300 for gemma4, which needs more wall-clock
+# per table) so tables complete instead of timing out. A runaway table is still capped by
+# the num_predict token limit, so a higher wall-clock timeout is safe.
+VLM_TIMEOUT = int(_env("RAG_VLM_TIMEOUT", "90"))
+
 # RAG_HYBRID=1 routes retrieval through dense+BM25 reciprocal-rank fusion (hybrid.py)
 # instead of plain dense cosine. Off by default.
 HYBRID = _env("RAG_HYBRID", "").lower() in ("1", "true", "yes")

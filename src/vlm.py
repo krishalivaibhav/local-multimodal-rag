@@ -11,13 +11,14 @@ and the target A1000 (CUDA) run identical code.
 
 import ollama
 
-from config import VLM_MODEL  # vision-model choice (RAG_VLM_MODEL); swap per machine
+from config import VLM_MODEL, VLM_TIMEOUT  # model + timeout (RAG_VLM_MODEL/RAG_VLM_TIMEOUT)
 
 # Robustness: a runaway generation on one bad table image once froze the whole
 # 217-table build. Two guards: cap the output length (a transcription is short),
 # and a per-call HTTP timeout as a backstop. One bad table must not wedge ingest.
+# TIMEOUT_S is configurable (RAG_VLM_TIMEOUT) -- raise it for a slower VLM like gemma4.
 MAX_TOKENS = 1536
-TIMEOUT_S = 90
+TIMEOUT_S = VLM_TIMEOUT
 _client = ollama.Client(timeout=TIMEOUT_S)
 
 # Faithful transcription, not interpretation. The multi-column-header instruction
