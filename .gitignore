@@ -64,8 +64,11 @@ models/
 *.onnx
 *.safetensors
 
-# local vector store
-data/chroma/
+# local vector stores (all variants: chroma, chroma_vlm, chroma_bak_*, ...)
+data/chroma*/
+
+# local-only feedback log (contains question/answer content -- never commit)
+data/feedback/
 
 # local-only sync/handoff doc (not for the remote)
 PROGRESS.md
