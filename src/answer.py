@@ -156,15 +156,20 @@ def resolve_citations(answer_text, citation_map):
     return cited, hallucinated
 
 
-def answer_question(question, k=5):
+def answer_question(question, k=5, source_file=None):
     """End-to-end: retrieve -> build grounded prompt -> generate -> resolve cites.
 
     Returns a dict with the answer text, the full tag->citation map (all retrieved
     sources), the cited subset, and any hallucinated tags.
+
+    source_file: scope retrieval to this one document, overriding the alias router.
+    The upload app passes the just-uploaded PDF here so answers come from it.
     """
     # doc routing (#23): if the query names one document, scope retrieval to it so a
-    # near-duplicate (810G vs 810H) can't out-compete the intended doc.
-    res = retrieve(question, k=k, source_file=route_query(question))
+    # near-duplicate (810G vs 810H) can't out-compete the intended doc. An explicit
+    # source_file (e.g. the uploaded PDF) overrides the router.
+    sf = source_file if source_file is not None else route_query(question)
+    res = retrieve(question, k=k, source_file=sf)
     metadatas = res["metadatas"][0]
     documents = res["documents"][0]
     # small-to-big (#26): expand a retrieved table row into its full parent table
@@ -176,12 +181,22 @@ def answer_question(question, k=5):
     answer_text = generate(messages)
     cited, hallucinated = resolve_citations(answer_text, citation_map)
 
+    # Per-source provenance (S1..Sk in order), so a caller (e.g. the GUI) can render the
+    # cited PAGE image. cited == whether the answer actually used this source.
+    sources = [
+        {"tag": f"S{i}", "source_file": m.get("source_file"), "page": m.get("page_number"),
+         "source_type": m.get("source_type"), "citation": citation_map[f"S{i}"],
+         "cited": f"S{i}" in cited}
+        for i, m in enumerate(metadatas, start=1)
+    ]
+
     return {
         "question": question,
         "answer": answer_text,
         "citation_map": citation_map,   # all retrieved sources, S1..Sk in order
         "cited": cited,
         "hallucinated": hallucinated,
+        "sources": sources,             # structured provenance (source_file, page, ...)
     }
 
 

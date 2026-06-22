@@ -70,5 +70,8 @@ data/chroma*/
 # local-only feedback log (contains question/answer content -- never commit)
 data/feedback/
 
+# user-uploaded PDFs (Upload & Ask app) -- local-only content
+data/uploads/
+
 # local-only sync/handoff doc (not for the remote)
 PROGRESS.md

@@ -2,14 +2,14 @@
 app.py -- a local Gradio chat UI over the RAG engine.
 
 A thin front-end: every question goes through answer_question() (retrieval ->
-grounded prompt -> local LLM -> citation resolution), and the reply shows the
-grounded answer PLUS all retrieved sources with the cited ones marked (decision
-#4: auditability is the product). Each answer carries native 👍/👎 thumbs whose
-votes are logged locally (data/feedback/feedback.jsonl) -- the on-box feedback
-loop, which in an air-gapped deployment is the only way to learn what's failing.
+grounded prompt -> local LLM -> citation resolution). The reply shows the grounded
+answer + all retrieved sources (cited ones marked), AND renders the cited PDF
+pages in a gallery so a user can SEE the grounding -- auditability is the product.
+Each answer carries native 👍/👎 thumbs whose votes are logged locally
+(data/feedback/feedback.jsonl) -- the on-box feedback loop for an air-gapped deploy.
 
 Runs at FULL retrieval strength (hybrid + parent-tables). Fully local -- local
-store + local Ollama, no public share link.
+store + local Ollama + local PDFs, no public share link.
 
 Run:  cd src && python app.py     # then open http://127.0.0.1:7860
 """
@@ -26,14 +26,22 @@ import re
 import time
 from pathlib import Path
 
+import fitz
 import gradio as gr
+from PIL import Image
 
 from answer import answer_question
 
+_ROOT = Path(__file__).resolve().parent.parent
+_PDFS_DIR = _ROOT / "data" / "pdfs"
+
 # Feedback log -- local, under data/ (gitignored like the store/PDFs).
-_FEEDBACK_DIR = Path(__file__).resolve().parent.parent / "data" / "feedback"
+_FEEDBACK_DIR = _ROOT / "data" / "feedback"
 _FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
 _FEEDBACK_LOG = _FEEDBACK_DIR / "feedback.jsonl"
+
+# Rendered cited pages, cached in memory by (source_file, page) -- cheap to keep a few.
+_PAGE_CACHE = {}
 
 # Greeting / chit-chat: a grounded QA system, not a chatbot, so a bare "hello" abstains.
 # Intercept SHORT greetings with a friendly intro instead of a bare refusal.
@@ -48,10 +56,31 @@ _INTRO = (
 )
 
 
+def _render_cited_page(source_file, page):
+    """Render a cited PDF page to a PIL image (cached). Returns the image, or None."""
+    if not source_file or not page:
+        return None
+    key = (source_file, page)
+    if key in _PAGE_CACHE:
+        return _PAGE_CACHE[key]
+    pdf = _PDFS_DIR / source_file
+    if not pdf.exists():
+        return None
+    try:
+        with fitz.open(str(pdf)) as doc:
+            pix = doc[page - 1].get_pixmap(dpi=110)        # page_number is 1-based
+            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    except Exception:
+        return None
+    _PAGE_CACHE[key] = img
+    return img
+
+
 def respond(message, history):
-    """One chat turn: answer the question, render the answer + cited sources."""
+    """One chat turn -> (answer markdown, gallery of cited source pages)."""
     if _GREETING.match(message) and len(message.split()) <= 4:
-        return _INTRO
+        return _INTRO, []
+
     res = answer_question(message)
     cited = set(res["cited"])
     lines = [res["answer"], "", "**Sources** (✅ = cited in the answer):"]
@@ -62,7 +91,21 @@ def respond(message, history):
         lines.append("")
         lines.append("⚠️ The model cited tags we did not provide: "
                      + ", ".join(f"[{t}]" for t in res["hallucinated"]))
-    return "\n".join(lines)
+
+    # Render the CITED pages (deduped) so the user can see exactly what grounded the answer.
+    gallery, seen = [], set()
+    for s in res["sources"]:
+        if not s["cited"] or not s["page"]:
+            continue
+        key = (s["source_file"], s["page"])
+        if key in seen:
+            continue
+        seen.add(key)
+        img = _render_cited_page(s["source_file"], s["page"])
+        if img is not None:
+            gallery.append((img, f"{s['source_file']} · page {s['page']}"))
+
+    return "\n".join(lines), gallery
 
 
 def log_vote(data: gr.LikeData):
@@ -79,25 +122,25 @@ def log_vote(data: gr.LikeData):
 
 
 with gr.Blocks(title="Local Multimodal RAG — technical-PDF Q&A") as demo:
-    gr.Markdown(
-        "## Local Multimodal RAG — technical-PDF Q&A\n"
-        "Ask about the ingested documents. Answers are **grounded in the PDFs with "
-        "citations**, and the system **abstains rather than guess**. Rate any answer with "
-        "the 👍 / 👎 beneath it — feedback is logged locally for review. Fully local."
-    )
+    gr.Markdown("## Local Multimodal RAG — technical-PDF Q&A")
+    # defined render=False so it can be placed BELOW the chat (after ChatInterface renders)
+    gallery = gr.Gallery(label="📄 Cited source pages", columns=2, height=460, render=False)
     chatbot = gr.Chatbot(height=460)
     gr.ChatInterface(
         respond,
         chatbot=chatbot,
+        additional_outputs=[gallery],
         examples=[
             "In MIL-STD-810G Method 512.5 (Immersion), what can the test verify in lieu of a rain test?",
             "In NASA's project-type classification (Table 3.11-1), what kind of mission is Type A?",
             "What kind of test stands are listed among facilities to consider in Table 6.1-2?",
         ],
     )
+    gallery.render()
     chatbot.like(log_vote)
 
 
 if __name__ == "__main__":
     # local only -- no public share link; the confidential corpus stays on the machine.
-    demo.launch()
+    # css hides Gradio's footer (Use via API / Built with Gradio / Settings) for a minimal UI.
+    demo.launch(css="footer {display: none !important}")
