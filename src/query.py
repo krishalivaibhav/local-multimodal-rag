@@ -97,18 +97,35 @@ def fetch_table(source_file, page, table_idx):
 def retrieve(question, k=5, source_file=None):
     """Retrieval entry point: dense+BM25 hybrid if config.HYBRID, else plain dense.
     With config.HYDE, expand the query first (embed question + a hypothetical answer).
+    With config.RERANK, over-fetch a wider candidate pool from whichever recall path ran
+    and rescore it with a cross-encoder down to k (rerank.py, deferred #25).
     Lazy imports so nothing extra is loaded unless its flag is on."""
-    from config import HYBRID, HYDE
+    from config import HYBRID, HYDE, RERANK, RERANK_FETCH
     query_text = question
     if HYDE:
         from generate import hyde_query
         hyp = hyde_query(question)
         if hyp:
             query_text = f"{question}\n{hyp}"   # query expansion: anchor + hypothetical
+
+    # When reranking, the recall stage hands up a WIDE candidate pool (RERANK_FETCH) for the
+    # cross-encoder to rescore down to k; otherwise it returns k directly. The over-fetch
+    # wraps WHICHEVER recall path runs, so rerank composes with both hybrid and plain dense.
+    fetch = max(k, RERANK_FETCH) if RERANK else k
     if HYBRID:
         from hybrid import hybrid_search        # lazy: hybrid imports from query
-        return hybrid_search(question, k=k, source_file=source_file, query_text=query_text)
-    return search(question, k=k, source_file=source_file, query_text=query_text)
+        res = hybrid_search(question, k=fetch, source_file=source_file, query_text=query_text)
+    else:
+        res = search(question, k=fetch, source_file=source_file, query_text=query_text)
+
+    # Rerank on the ORIGINAL question (not the HyDE-expanded query_text -- the cross-encoder
+    # is most accurate on the true question<->passage pair; HyDE is a recall aid only).
+    # Runs HERE, before answer.py's parent-table expansion, so small-to-big (#26) still fires
+    # on the reranked survivors.
+    if RERANK:
+        from rerank import rerank_results        # lazy: only load the model when flag is on
+        res = rerank_results(question, res, k=k)
+    return res
 
 
 def search(question, k=5, table_boost=None, source_file=None, query_text=None):

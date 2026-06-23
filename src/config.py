@@ -75,3 +75,14 @@ PARENT_TABLES = _env("RAG_PARENT_TABLES", "").lower() in ("1", "true", "yes")
 # query matches a table's CELLS rather than only its caption. Costs one extra LLM call
 # per query (latency); evaluate net effect before shipping. Off by default.
 HYDE = _env("RAG_HYDE", "").lower() in ("1", "true", "yes")
+
+# RAG_RERANK=1 adds a cross-encoder reranking stage (rerank.py): over-fetch RERANK_FETCH
+# candidates from the hybrid/dense retriever, rescore each (question, chunk) pair with a
+# cross-encoder, and keep the top-k. A bi-encoder (bge-small) embeds query and chunk
+# SEPARATELY, so it can rank a retrieved-but-relevant chunk low (finding #24: the p230
+# "watertightness" chunk sat ~20th); a cross-encoder reads the pair TOGETHER and scores
+# true relevance. NOT the TABLE_BOOST heuristic in query.search (finding #26) -- this is a
+# learned model. Off by default; flag on == pure post-stage, flag off == byte-identical.
+RERANK = _env("RAG_RERANK", "").lower() in ("1", "true", "yes")
+RERANK_MODEL = _env("RAG_RERANK_MODEL", "BAAI/bge-reranker-base")
+RERANK_FETCH = int(_env("RAG_RERANK_FETCH", "50"))   # candidates to rescore down to k

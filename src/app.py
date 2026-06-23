@@ -18,11 +18,13 @@ Run:  cd src && python app.py     # then open http://127.0.0.1:7860
 """
 import os
 
-# Full retrieval strength by default (the config behind the 0.73 result). Must be set
-# BEFORE answer/query/config import (config reads these at import time). setdefault so an
-# explicit env var still wins.
+# Full retrieval strength by default: dense+BM25 hybrid + parent-tables + cross-encoder rerank
+# (the stack behind finding #40 -- MULTIDOC citation 0.55->0.82, HARD value 0.70->0.75). Must be
+# set BEFORE answer/query/config import (config reads these at import time). setdefault so an
+# explicit env var still wins. RAG_RERANK adds ~3 s/query on the M2 CPU (near-zero on GPU/MPS).
 os.environ.setdefault("RAG_HYBRID", "1")
 os.environ.setdefault("RAG_PARENT_TABLES", "1")
+os.environ.setdefault("RAG_RERANK", "1")
 
 import json
 import re

@@ -11,7 +11,9 @@ in `findings.md` (35 findings); design rationale is in `defense_qa.md`.
   MRR 0.764; answer **value 0.80 / citation 0.65** (F1 **0.84 / 0.68**), with reliable
   abstention. This is the honest headline number.
 - **Three-document corpus** (810H + 810G + NASA SE Handbook): cross-document routing fixed
-  to **precision 1.00**; generalization to a new-domain doc holds (NASA ~5/6).
+  to **precision 1.00**; generalization to a new-domain doc holds (NASA ~5/6). A cross-encoder
+  reranker then lifts MULTIDOC retrieval Hit@5 **0.73 -> 0.91** and citation **0.55 -> 0.82**
+  (finding #40).
 - **The honest weak spot is tables** — reading is solved (VLM), representation-for-QA is the
   open frontier (an unsolved problem in the field, not just here).
 
@@ -54,7 +56,16 @@ first time and surfaced -- then fixed -- real bugs.
 | + header de-noise | **0.73** (honest) | 0.55 | dropped ~20k tiny header/footer chunks; hardest case (immersion) fixed |
 | + parent-document tables | 0.73 | 0.64 | small-to-big: retrieve a row, answer from the whole table; table case recovered, **precision 1.00** |
 | + list-vs-table (`table_list`) | 0.73 | **0.73** | dual-representation + caption gate; **p130 recovered** (a list mis-read as a table); precision **1.00**, F1 0.78 -> **0.84** (finding #37) |
+| + cross-encoder rerank | **0.91** | 0.73 | `bge-reranker` rescores top-50; MRR 0.591 -> **0.803**, **citation 0.55 -> 0.82**, over-abstention 3 -> 1; p60 + p410 retrieval recovered (finding #40) |
 
+- **Cross-encoder reranking (finding #40) lifts retrieval and grounding on BOTH sets, abstention
+  safety preserved:** MULTIDOC Hit@5 0.73 -> **0.91** (MRR 0.591 -> 0.803), citation 0.55 -> **0.82**,
+  over-abstention 3 -> 1; HARD value 0.70 -> **0.75**, Hit@5 0.85 -> 0.90 (multi-doc store). Recovered
+  p774 (deferred #18) and p60; **p410 now retrieves + cites correctly, isolating its residual miss to
+  table *reading*, not retrieval.** Abstention held 3/3 -- no new fabrications. Value flat on MULTIDOC
+  (0.73): the gain there is citation + fewer refusals, scored separately by design (#14/#15). The
+  retrieval stack is now **dense + BM25 + RRF + cross-encoder rerank**. Cost: ~3 s/query on the M2 CPU
+  (~9% of end-to-end; near-zero on the GPU/MPS).
 - **List-vs-table fix (finding #37) is net-positive on BOTH sets, zero regressions:** MULTIDOC
   value 0.64 -> **0.73** (p130 recovered), and a HARD A/B on the *same* multi-doc store
   isolated table_list at 0.65 -> **0.70** (p543 recovered). The flat `table_list` chunk is a
@@ -121,6 +132,7 @@ python eval_answer.py multidoc         # multi-doc set (add RAG_HYBRID=1 for hyb
 
 Fully local: PyMuPDF + pdfplumber (parsing), `bge-small-en-v1.5` (embeddings), ChromaDB
 (vector store), Ollama-served `gemma3:4b` (VLM) and `qwen2.5:7b-instruct` (answer LLM), with
-dense+BM25 hybrid retrieval and a deterministic document router. Raw Python -- no LangChain
-orchestration. Every model is swappable via one env var (`RAG_VLM_MODEL` / `RAG_LLM_MODEL`),
-so the system scales up with better hardware without code changes.
+dense+BM25 hybrid retrieval, `bge-reranker-base` cross-encoder reranking, and a deterministic
+document router. Raw Python -- no LangChain orchestration. Every model is swappable via one env
+var (`RAG_VLM_MODEL` / `RAG_LLM_MODEL` / `RAG_RERANK_MODEL`), so the system scales up with better
+hardware without code changes.
