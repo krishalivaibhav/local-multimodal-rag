@@ -87,6 +87,47 @@ def cite_ok(result, case):
     return False
 
 
+def cited_locations(result):
+    """Distinct (source_file, page) locations the model actually CITED, parsed from the
+    resolved citation strings ("<doc> · page N, ...")."""
+    locs = []
+    for tag in result["cited"]:
+        cite = result["citation_map"][tag]
+        doc = cite.split(" · ", 1)[0].strip()
+        m = re.search(r"page (\d+)", cite)
+        if m:
+            loc = (doc, int(m.group(1)))
+            if loc not in locs:
+                locs.append(loc)
+    return locs
+
+
+def citation_precision(result, case):
+    """Of the DISTINCT pages cited, the fraction that are the expected (doc, page) --
+    citation TIGHTNESS (deferred #17). 1 right page -> 1.0; the right page plus four
+    extras -> 0.20; right page not cited -> 0.0. Returns None when nothing was cited
+    (abstention). Caveat: the eval knows only ONE expected page, so 'extra' citations
+    may be legitimate support -- read this as tightness, not pure correctness."""
+    locs = cited_locations(result)
+    if not locs:
+        return None
+    exp_sf = case.get("expected_source_file", "mil-std-810h.pdf")
+    exp_page = case["expected_page"]
+    on_target = sum(1 for d, p in locs if exp_sf in d and p == exp_page)
+    return on_target / len(locs)
+
+
+def wrong_doc_cited(result, case):
+    """Did the answer cite a document OTHER than the expected one? Catches the
+    near-duplicate provenance leak (citing 810G on an 810H question). None if nothing
+    was cited."""
+    locs = cited_locations(result)
+    if not locs:
+        return None
+    exp_sf = case.get("expected_source_file", "mil-std-810h.pdf")
+    return any(exp_sf not in d for d, _ in locs)
+
+
 def evaluate(cases=TEST_CASES, abstain_cases=ABSTAIN_CASES):
     rows = []
     for case in cases:
@@ -98,6 +139,9 @@ def evaluate(cases=TEST_CASES, abstain_cases=ABSTAIN_CASES):
             "case": case, "result": r,
             "value_ok": v_ok, "cite_ok": c_ok,
             "abstained": abstained,  # on an answerable case this is OVER-abstention
+            "cite_prec": citation_precision(r, case),   # None if nothing cited
+            "wrong_doc": wrong_doc_cited(r, case),      # None if nothing cited
+            "n_cited": len(cited_locations(r)),
         })
 
     abstain_rows = []
@@ -148,6 +192,16 @@ if __name__ == "__main__":
           f"{answered} answered) ===")
     print(f"value    : acc {value_acc:.2f} | precision {vp:.2f} recall {vr:.2f} F1 {vf1:.2f}")
     print(f"citation : acc {cite_acc:.2f} | precision {cp:.2f} recall {cr:.2f} F1 {cf1:.2f}")
+    # Citation TIGHTNESS (deferred #17): among answered cases that cited something, how
+    # on-target are the citations -- mean precision (1.0 = only the right page), pages cited
+    # per answer, and how many leaked a wrong document (the near-dup 810G-on-810H provenance leak).
+    cited_rows = [r for r in rows if r["cite_prec"] is not None]
+    if cited_rows:
+        mean_prec = sum(r["cite_prec"] for r in cited_rows) / len(cited_rows)
+        mean_cited = sum(r["n_cited"] for r in cited_rows) / len(cited_rows)
+        wrong_doc = sum(bool(r["wrong_doc"]) for r in cited_rows)
+        print(f"cite tightness    : precision {mean_prec:.2f} | {mean_cited:.1f} pages/answer | "
+              f"wrong-doc {wrong_doc}/{len(cited_rows)}")
     print(f"over-abstention   : {over_abstain}/{n}  (refused an answerable question)")
     print(f"abstention (neg)  : {correct_abstain}/{len(abstain_rows)}  (correctly refused the unanswerable)\n")
 
