@@ -16,7 +16,7 @@ from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
 from ingest import CHROMA_DIR, COLLECTION_NAME, EMBED_MODEL, DEVICE
-from query import QUERY_INSTRUCTION
+from query import QUERY_INSTRUCTION, scope_where, _superseded_docs
 
 _TOKEN = re.compile(r"[a-z0-9.]+")
 
@@ -68,7 +68,7 @@ def hybrid_search(question, k=5, source_file=None, fetch=50, rrf_k=60, query_tex
     from `question` (HyDE passes question + hypothetical -- its extra keywords help the
     lexical side too). Defaults to `question`."""
     idx = _index()
-    where = {"source_file": source_file} if source_file else None
+    where = scope_where(source_file)        # named doc, or exclude superseded (#42)
     qt = query_text or question
 
     # dense ranking (cosine, optionally doc-scoped)
@@ -77,11 +77,17 @@ def hybrid_search(question, k=5, source_file=None, fetch=50, rrf_k=60, query_tex
     dres = idx["col"].query(query_embeddings=[q_emb], n_results=fetch, where=where)
     dense_ids = dres["ids"][0]
 
-    # bm25 ranking over the whole corpus, then filtered to the scoped doc
+    # bm25 ranking over the whole corpus, then filtered to the SAME scope as the dense side
+    # (#42: the Chroma `where` doesn't apply to BM25, so mirror it here -- restrict to the named
+    # doc, or drop superseded older-revision docs on an unscoped query).
+    excluded = set() if source_file else _superseded_docs()
     scores = idx["bm25"].get_scores(_tok(qt))
     bm25_ids = []
     for i in sorted(range(len(scores)), key=lambda j: -scores[j]):
-        if source_file and idx["metas"][i].get("source_file") != source_file:
+        sf_i = idx["metas"][i].get("source_file")
+        if source_file and sf_i != source_file:
+            continue
+        if sf_i in excluded:
             continue
         bm25_ids.append(idx["ids"][i])
         if len(bm25_ids) >= fetch:

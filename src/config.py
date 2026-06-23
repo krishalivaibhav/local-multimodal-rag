@@ -86,3 +86,12 @@ HYDE = _env("RAG_HYDE", "").lower() in ("1", "true", "yes")
 RERANK = _env("RAG_RERANK", "").lower() in ("1", "true", "yes")
 RERANK_MODEL = _env("RAG_RERANK_MODEL", "BAAI/bge-reranker-base")
 RERANK_FETCH = int(_env("RAG_RERANK_FETCH", "50"))   # candidates to rescore down to k
+
+# RAG_SUPERSEDE=1: an UNSCOPED query (no doc named) excludes SUPERSEDED older-revision docs
+# (declared in query.SUPERSEDED_BY) so a generic question defaults to the CURRENT revision
+# instead of co-citing two near-identical versions (finding #42 leak). A query that NAMES a
+# superseded doc still reaches it. **DEFAULT OFF** -- finding #43 measured the blunt exclusion
+# NET-NEGATIVE (HARD value 0.75->0.65, citation 0.65->0.55, +2 abstentions): the near-duplicate
+# is also a RECALL asset (its copy sometimes retrieves an answer 810H's own chunk misses). Kept
+# flag-gated; the real #42 fix is cross-revision chunk dedup (deferred). =0 reproduces pre-#42.
+SUPERSEDE = _env("RAG_SUPERSEDE", "0").lower() in ("1", "true", "yes")

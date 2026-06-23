@@ -80,6 +80,33 @@ def route_query(question, source_files=None):
     return matches[0] if len(matches) == 1 else None
 
 
+# --- near-duplicate supersession (finding #42) ---
+# In a corpus with multiple REVISIONS of the same document (MIL-STD-810G -> 810H), an
+# UNSCOPED query matches near-identical content in both, and the answer co-cites the wrong
+# revision (#42: 11/17 HARD answers leaked 810G into 810H citations). Declare which doc
+# supersedes which; an unscoped query then defaults to the CURRENT revision -- the superseded
+# doc stays reachable, but only when a query NAMES it (route_query scopes to it as usual).
+SUPERSEDED_BY = {"MIL-STD-810G.pdf": "mil-std-810h.pdf"}      # {older revision: newer}
+
+
+def _superseded_docs():
+    """Older-revision docs to hide from UNSCOPED retrieval (empty if RAG_SUPERSEDE is off)."""
+    from config import SUPERSEDE
+    return set(SUPERSEDED_BY) if SUPERSEDE else set()
+
+
+def scope_where(source_file):
+    """Chroma metadata filter for the retrieval scope:
+      - a NAMED doc -> restrict to it (even a superseded one, when explicitly named);
+      - UNSCOPED    -> exclude superseded older-revision docs so a generic query defaults to
+                       the current revision (finding #42). None when there is nothing to filter.
+    """
+    if source_file:
+        return {"source_file": source_file}
+    sup = _superseded_docs()
+    return {"source_file": {"$nin": sorted(sup)}} if sup else None
+
+
 def fetch_table(source_file, page, table_idx):
     """Reconstruct a table's FULL text from all its row chunks, sorted by row -- the
     'big' in small-to-big retrieval (deferred #26). We retrieve a findable row, then
@@ -145,7 +172,7 @@ def search(question, k=5, table_boost=None, source_file=None, query_text=None):
     question + hypothetical here). Defaults to `question`.
     """
     boost = TABLE_BOOST if table_boost is None else table_boost
-    where = {"source_file": source_file} if source_file else None
+    where = scope_where(source_file)       # named doc, or exclude superseded (#42)
     model = _embedder()                    # cached; was reloaded per call (finding #38)
     q_emb = model.encode(
         QUERY_INSTRUCTION + (query_text or question),
