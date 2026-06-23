@@ -75,3 +75,8 @@ data/uploads/
 
 # local-only sync/handoff doc (not for the remote)
 PROGRESS.md
+
+# local-only working notes (kept off the online repo)
+findings.md
+deferred.md
+GPU_RUNBOOK.md
