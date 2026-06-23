@@ -25,6 +25,7 @@ import os
 os.environ.setdefault("RAG_HYBRID", "1")
 os.environ.setdefault("RAG_PARENT_TABLES", "1")
 os.environ.setdefault("RAG_RERANK", "1")
+os.environ.setdefault("RAG_DEDUP_REVISIONS", "1")   # cross-revision citation dedup (finding #44)
 
 import json
 import re

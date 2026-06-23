@@ -107,6 +107,60 @@ def scope_where(source_file):
     return {"source_file": {"$nin": sorted(sup)}} if sup else None
 
 
+# --- cross-revision dedup (finding #43 soft fix) ---
+# The blunt RAG_SUPERSEDE exclusion was net-negative because the older revision is also a recall
+# asset (finding #43). The softer fix: keep BOTH revisions retrievable, but when the candidate
+# pool holds two NEAR-IDENTICAL chunks from a revision pair, drop the OLDER one's copy -- so
+# identical content cites the current revision WITHOUT losing content that exists only in the old.
+_WORD = re.compile(r"[a-z0-9.]+")
+DEDUP_THRESHOLD = 0.8                     # token-Jaccard >= this => "same content, two revisions"
+
+
+def _revision_older(a, b):
+    """If source_files a and b are a known revision pair, return the SUPERSEDED (older) one;
+    else None. Uses SUPERSEDED_BY (declared corpus knowledge)."""
+    if SUPERSEDED_BY.get(a) == b:
+        return a
+    if SUPERSEDED_BY.get(b) == a:
+        return b
+    return None
+
+
+def _jaccard(t1, t2):
+    """Token-set Jaccard overlap of two chunk texts -- a cheap near-identical test."""
+    s1, s2 = set(_WORD.findall((t1 or "").lower())), set(_WORD.findall((t2 or "").lower()))
+    return len(s1 & s2) / len(s1 | s2) if (s1 and s2) else 0.0
+
+
+def dedup_revisions(res):
+    """Collapse near-identical chunks from different REVISIONS in a candidate result dict,
+    keeping the current revision's copy (finding #43). Only declared revision pairs are
+    compared; all other chunks pass through. Order preserved. Same {ids, documents, metadatas,
+    distances} shape."""
+    docs, metas = res["documents"][0], res["metadatas"][0]
+    ids, dists = res["ids"][0], res["distances"][0]
+    drop = set()
+    for i in range(len(docs)):
+        if i in drop:
+            continue
+        for j in range(i + 1, len(docs)):
+            if j in drop:
+                continue
+            older = _revision_older(metas[i].get("source_file"), metas[j].get("source_file"))
+            if older is None:
+                continue
+            if _jaccard(docs[i], docs[j]) >= DEDUP_THRESHOLD:
+                drop.add(i if metas[i].get("source_file") == older else j)
+    keep = [k for k in range(len(docs)) if k not in drop]
+    return {"ids": [[ids[k] for k in keep]], "documents": [[docs[k] for k in keep]],
+            "metadatas": [[metas[k] for k in keep]], "distances": [[dists[k] for k in keep]]}
+
+
+def _take_top_k(res, k):
+    """Trim a result dict to its first k entries (recall order)."""
+    return {key: [res[key][0][:k]] for key in ("ids", "documents", "metadatas", "distances")}
+
+
 def fetch_table(source_file, page, table_idx):
     """Reconstruct a table's FULL text from all its row chunks, sorted by row -- the
     'big' in small-to-big retrieval (deferred #26). We retrieve a findable row, then
@@ -127,7 +181,7 @@ def retrieve(question, k=5, source_file=None):
     With config.RERANK, over-fetch a wider candidate pool from whichever recall path ran
     and rescore it with a cross-encoder down to k (rerank.py, deferred #25).
     Lazy imports so nothing extra is loaded unless its flag is on."""
-    from config import HYBRID, HYDE, RERANK, RERANK_FETCH
+    from config import HYBRID, HYDE, RERANK, RERANK_FETCH, DEDUP_REVISIONS
     query_text = question
     if HYDE:
         from generate import hyde_query
@@ -135,15 +189,20 @@ def retrieve(question, k=5, source_file=None):
         if hyp:
             query_text = f"{question}\n{hyp}"   # query expansion: anchor + hypothetical
 
-    # When reranking, the recall stage hands up a WIDE candidate pool (RERANK_FETCH) for the
-    # cross-encoder to rescore down to k; otherwise it returns k directly. The over-fetch
-    # wraps WHICHEVER recall path runs, so rerank composes with both hybrid and plain dense.
-    fetch = max(k, RERANK_FETCH) if RERANK else k
+    # Over-fetch a WIDE candidate pool when reranking OR deduping revisions -- both need a pool
+    # bigger than k to work on; otherwise the recall stage returns k directly. Wraps WHICHEVER
+    # recall path runs, so these compose with both hybrid and plain dense.
+    fetch = max(k, RERANK_FETCH) if (RERANK or DEDUP_REVISIONS) else k
     if HYBRID:
         from hybrid import hybrid_search        # lazy: hybrid imports from query
         res = hybrid_search(question, k=fetch, source_file=source_file, query_text=query_text)
     else:
         res = search(question, k=fetch, source_file=source_file, query_text=query_text)
+
+    # Cross-revision dedup (#43 soft fix): collapse near-identical older-revision twins in the
+    # pool BEFORE rerank, so the top-k carries the current revision's copy without losing a slot.
+    if DEDUP_REVISIONS:
+        res = dedup_revisions(res)
 
     # Rerank on the ORIGINAL question (not the HyDE-expanded query_text -- the cross-encoder
     # is most accurate on the true question<->passage pair; HyDE is a recall aid only).
@@ -152,6 +211,8 @@ def retrieve(question, k=5, source_file=None):
     if RERANK:
         from rerank import rerank_results        # lazy: only load the model when flag is on
         res = rerank_results(question, res, k=k)
+    elif fetch != k:
+        res = _take_top_k(res, k)               # over-fetched for dedup but not reranking -> trim
     return res
 
 

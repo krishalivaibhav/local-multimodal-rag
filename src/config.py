@@ -95,3 +95,12 @@ RERANK_FETCH = int(_env("RAG_RERANK_FETCH", "50"))   # candidates to rescore dow
 # is also a RECALL asset (its copy sometimes retrieves an answer 810H's own chunk misses). Kept
 # flag-gated; the real #42 fix is cross-revision chunk dedup (deferred). =0 reproduces pre-#42.
 SUPERSEDE = _env("RAG_SUPERSEDE", "0").lower() in ("1", "true", "yes")
+
+# RAG_DEDUP_REVISIONS=1: collapse NEAR-IDENTICAL chunks from different REVISIONS of the same
+# document in the retrieved pool, keeping the CURRENT revision's copy for provenance -- the SOFT
+# #42 fix. Unlike RAG_SUPERSEDE (finding #43, net-negative), it does NOT drop content unique to
+# the older revision (no near-identical twin in the pool => nothing removed), so it cleans the
+# wrong-doc leak WITHOUT the recall loss. Uses query.SUPERSEDED_BY for the revision pairs.
+# DEFAULT ON -- finding #44 measured it a strict Pareto win (HARD wrong-doc 11/17 -> 8/17, value &
+# citation UNCHANGED; MULTIDOC unchanged), at negligible cost. Set 0 for the pre-#44 baseline.
+DEDUP_REVISIONS = _env("RAG_DEDUP_REVISIONS", "1").lower() in ("1", "true", "yes")
