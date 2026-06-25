@@ -186,7 +186,7 @@ def answer_question(question, k=5, source_file=None):
     sources = [
         {"tag": f"S{i}", "source_file": m.get("source_file"), "page": m.get("page_number"),
          "source_type": m.get("source_type"), "citation": citation_map[f"S{i}"],
-         "cited": f"S{i}" in cited, "text": d}
+         "cited": f"S{i}" in cited, "text": d, "block_idx": m.get("block_idx")}
         for i, (m, d) in enumerate(zip(metadatas, documents), start=1)
     ]
 

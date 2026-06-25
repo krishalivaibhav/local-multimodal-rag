@@ -19,7 +19,8 @@ facts. At n=13 a FAIL is read by hand: fix the key (phrasing miss) or log a bug
 
 import re
 
-from eval_retrieval import TEST_CASES, HARD_CASES, HARD_ABSTAIN_CASES, MULTIDOC_CASES
+from eval_retrieval import (TEST_CASES, HARD_CASES, HARD_ABSTAIN_CASES, MULTIDOC_CASES,
+                            FIGURE_CASES)
 from answer import answer_question, ABSTAIN
 
 # Deliberately unanswerable by the document: the model MUST return the abstention
@@ -161,6 +162,7 @@ if __name__ == "__main__":
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
     sets = {"hard": (HARD_CASES, HARD_ABSTAIN_CASES, "HARD"),
             "multidoc": (MULTIDOC_CASES, [], "MULTIDOC"),
+            "figure": (FIGURE_CASES, [], "FIGURE"),
             "": (TEST_CASES, ABSTAIN_CASES, "original")}
     cases, abstain_cases, label = sets.get(arg, sets[""])
     print(f"[{label} set]")

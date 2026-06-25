@@ -12,8 +12,38 @@ Vector-drawn figures (flowcharts made of lines, e.g. p9) have no image blocks an
 are NOT detected here -- a separate get_drawings()-based path, deferred.
 """
 
+import re
+
 from ingest import Chunk, render_table_image
 from vlm import transcribe_figure
+
+
+# --- figure noise filter (findings #39/#43): keep GENUINE diagrams, drop front-matter noise
+# (book covers, title graphics, list-of-figures TOC pages, acronym blobs) and VLM hallucinations
+# on decorative banners. Cheap text heuristics on the (context + VLM description) chunk text.
+_FIG_CAPTION = re.compile(r"\bfigure\s+\d", re.I)        # a real "FIGURE 2.0-1" caption
+_DOT_LEADER = re.compile(r"\.\s*\.\s*\.")                # TOC / list-of-figures dot leaders
+_VLM_NOISE = ("book cover", "title graphic", "title slide", "informational banner",
+              "promotional", "decorative", "cover page", "section divider",
+              "table of contents")
+
+
+def is_real_figure(text):
+    """Does a figure_caption chunk describe a GENUINE diagram (vs front-matter noise or a VLM
+    hallucination on a decorative banner)? Conservative -- when in doubt, drop:
+      - DROP if the VLM self-classified it as a cover / title graphic / decorative banner;
+      - DROP if it has TOC dot-leaders (a list-of-figures page, not a figure);
+      - DROP if it lacks a real 'FIGURE <n>' caption (catches section-opener banners and acronym
+        lists -- e.g. NASA p27, where the VLM hallucinated a 'process-flow diagram' from a chapter
+        title that has no figure caption);
+      - else KEEP.
+    """
+    t = (text or "").lower()
+    if any(w in t for w in _VLM_NOISE):
+        return False
+    if _DOT_LEADER.search(text or ""):
+        return False
+    return bool(_FIG_CAPTION.search(text or ""))
 
 
 def _expand(b, m):
@@ -112,6 +142,10 @@ def extract_figure_chunks(page, page_number, source_file, stats=None):
             context = figure_context(page, region)
             description = transcribe_figure(image_path, context=context)
             text = f"{context}\n{description}".strip() if context else description
+            if not is_real_figure(text):       # drop front-matter noise / hallucinated banners
+                if stats is not None:
+                    stats["figure_noise"] += 1
+                continue
             chunks.append(Chunk(
                 text=text,
                 source_file=source_file,

@@ -219,6 +219,29 @@ MULTIDOC_CASES = [
      "note": "Annex D: x(t) = inverse Fourier transform of X(f)"},
 ]
 
+# Figure-QA (image retrieval): questions authored from the ACTUAL rendered figures, NOT from the
+# VLM descriptions (avoids the #16/#18 selection-bias trap). Measured against the VLM store
+# (chroma_vlm), which carries figure_caption chunks. Some cases are EXPECTED to fail -- they
+# honestly expose where gemma4 only PARTIALLY transcribes a complex diagram (finding #39).
+FIGURE_CASES = [
+    {"question": "In NASA's Lunar Sortie DRM example (Figure 4.1-3), what happens to the Earth Departure Stage and the Ascent Stage during the mission?",
+     "expected_page": 61, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "figure", "expected_answer_contains": ["expended"],
+     "note": "Fig 4.1-3 schematic: both stages are 'Expended' (VLM captured -> expect pass)"},
+    {"question": "What method of atmospheric entry does the Lunar Sortie DRM (Figure 4.1-3) show for returning to Earth?",
+     "expected_page": 61, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "figure", "expected_answer_contains": [("skip", "direct or skip")],
+     "note": "Fig 4.1-3: 'Direct or Skip Land Entry' (VLM captured -> expect pass)"},
+    {"question": "According to Figure 2.0-1 (SE in the Context of Overall Project Management), what are the System Design Processes?",
+     "expected_page": 15, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "figure", "expected_answer_contains": ["Logical Decomposition", "Design Solution"],
+     "note": "Fig 2.0-1: the 4 System Design Processes; gemma4 MISSED these (captured only 'Common') -> expect FAIL (honest negative)"},
+    {"question": "What shared items are shown in the 'Common' center of Figure 2.0-1?",
+     "expected_page": 15, "expected_source_file": "nasa_systems_engineering_handbook_0.pdf",
+     "type": "figure", "expected_answer_contains": [("Stakeholders", "Risks")],
+     "note": "Fig 2.0-1 'Common' center: Stakeholders, Risks, Config Mgmt, Data (VLM captured -> expect pass)"},
+]
+
 K = 5
 
 
@@ -285,8 +308,9 @@ if __name__ == "__main__":
 
     # `python eval_retrieval.py hard|multidoc` selects the case set.
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
-    cases = {"hard": HARD_CASES, "multidoc": MULTIDOC_CASES}.get(arg, TEST_CASES)
-    label = {"hard": "HARD", "multidoc": "MULTIDOC"}.get(arg, "original")
+    cases = {"hard": HARD_CASES, "multidoc": MULTIDOC_CASES,
+             "figure": FIGURE_CASES}.get(arg, TEST_CASES)
+    label = {"hard": "HARD", "multidoc": "MULTIDOC", "figure": "FIGURE"}.get(arg, "original")
 
     hit_at_k, mrr, rows = evaluate(cases)
 

@@ -103,16 +103,35 @@ def _highlight_rects(page, text, cap=14):
     return rects[:cap]
 
 
-def _render_cited_page(source_file, page, snippet_text=None):
-    """Render a cited page to a PIL image with the cited passage highlighted.
+def _box_figure(page, block_idx):
+    """Draw a box around figure `block_idx` on the page, re-deriving the figure region with
+    the SAME clustering used at ingest (figures.cluster_image_regions, indexed by block_idx).
+    So a figure-sourced answer shows the actual diagram, marked. Returns True if located."""
+    try:
+        from figures import cluster_image_regions
+        regions = cluster_image_regions(page)
+        if not (0 <= block_idx < len(regions)):
+            return False
+        annot = page.add_rect_annot(fitz.Rect(regions[block_idx]))
+        annot.set_colors(stroke=(0.91, 0.61, 0.16))   # amber box
+        annot.set_border(width=2.5)
+        annot.update()
+        return True
+    except Exception:
+        return False
 
-    Returns (image, highlighted?) -- highlighted is False when we could not locate the
-    text on the page (e.g. a reformatted table chunk), in which case the plain page is
-    shown. Annotations live only in memory; the PDF on disk is never modified.
+
+def _render_cited_page(source_file, page, snippet_text=None, figure_block=None):
+    """Render a cited page to a PIL image with the cited content MARKED.
+
+    For a FIGURE source (`figure_block` set), draw a box around the figure region so the user
+    sees the actual diagram; otherwise highlight the cited passage text. Returns (image,
+    marked?) -- marked is False when the content could not be located (a plain page is shown).
+    Annotations live only in memory; the PDF on disk is never modified.
     """
     if not source_file or not page:
         return None, False
-    key = (source_file, page, hash(snippet_text or ""))
+    key = (source_file, page, figure_block, hash(snippet_text or ""))
     if key in _PAGE_CACHE:
         return _PAGE_CACHE[key]
     pdf = _PDFS_DIR / source_file
@@ -121,15 +140,19 @@ def _render_cited_page(source_file, page, snippet_text=None):
     try:
         with fitz.open(str(pdf)) as doc:
             pg = doc[page - 1]                  # page_number is 1-based
-            rects = _highlight_rects(pg, snippet_text) if snippet_text else []
-            for r in rects:
-                annot = pg.add_highlight_annot(r)
-                annot.update()
+            if figure_block is not None:
+                marked = _box_figure(pg, figure_block)
+            else:
+                rects = _highlight_rects(pg, snippet_text) if snippet_text else []
+                for r in rects:
+                    annot = pg.add_highlight_annot(r)
+                    annot.update()
+                marked = bool(rects)
             pix = pg.get_pixmap(dpi=_RENDER_DPI)
             img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
     except Exception:
         return None, False
-    out = (img, bool(rects))
+    out = (img, marked)
     _PAGE_CACHE[key] = out
     return out
 
@@ -181,13 +204,19 @@ def bot(history):
         if snip:
             cards.append(f"**`[{s['tag']}]`** · {s['citation']}\n\n> {snip}")
         if s["page"] and s["source_file"]:
-            key = (s["source_file"], s["page"])
+            is_fig = s.get("source_type") == "figure_caption"
+            fig_block = s.get("block_idx") if is_fig else None
+            key = (s["source_file"], s["page"], fig_block)   # per-figure on a shared page
             if key in seen:
                 continue
             seen.add(key)
-            img, hit = _render_cited_page(s["source_file"], s["page"], s.get("text"))
+            img, hit = _render_cited_page(s["source_file"], s["page"], s.get("text"),
+                                          figure_block=fig_block)
             if img is not None:
-                badge = " · 🟡 highlighted" if hit else ""
+                if is_fig:
+                    badge = " · 🖼 figure" if hit else " · 🖼 figure (page)"
+                else:
+                    badge = " · 🟡 highlighted" if hit else ""
                 gallery.append((img, f"{s['source_file']} · p{s['page']}{badge}"))
 
     if res["hallucinated"]:
