@@ -422,8 +422,12 @@ def build_all_chunks(pdf_path, source_file, use_vlm=False):
     return chunks, stats
 
 
-def embed_and_store(chunks):
+def embed_and_store(chunks, model=None, collection=None):
     """Phase 2: embed every chunk with bge-small and upsert into ChromaDB.
+
+    `model` / `collection` may be passed in so a multi-document run loads the
+    embedder ONCE and writes every doc into one collection -- letting the main
+    loop store PER DOCUMENT (a crash-resilient checkpoint for long VLM builds).
 
     Two decisions worth defending:
       1. normalize_embeddings=True + cosine space. bge vectors are meant to be
@@ -436,6 +440,9 @@ def embed_and_store(chunks):
     import chromadb
     from sentence_transformers import SentenceTransformer
 
+    if not chunks:                              # nothing to store (e.g. an empty doc)
+        return collection
+
     ids = [c.chunk_id for c in chunks]
     # Sanity: deterministic IDs must be unique, or upsert silently merges chunks.
     assert len(set(ids)) == len(ids), \
@@ -444,19 +451,21 @@ def embed_and_store(chunks):
     texts = [c.text for c in chunks]
     metadatas = [c.metadata() for c in chunks]
 
-    print(f"loading {EMBED_MODEL} on {DEVICE} ...")
-    # DEVICE from config: cpu on the dev Mac (MPS OOMs under unified-memory
-    # contention), "cuda" on a GPU box (RAG_DEVICE=cuda) for fast embedding.
-    model = SentenceTransformer(EMBED_MODEL, device=DEVICE)
+    if model is None:
+        print(f"loading {EMBED_MODEL} on {DEVICE} ...")
+        # DEVICE from config: cpu on the dev Mac (MPS OOMs under unified-memory
+        # contention), "cuda" on a GPU box (RAG_DEVICE=cuda) for fast embedding.
+        model = SentenceTransformer(EMBED_MODEL, device=DEVICE)
     print(f"embedding {len(texts)} chunks ...")
     embeddings = model.encode(
         texts, batch_size=64, normalize_embeddings=True,
         show_progress_bar=True,
     ).tolist()
 
-    client = chromadb.PersistentClient(path=CHROMA_DIR)
-    collection = client.get_or_create_collection(
-        name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
+    if collection is None:
+        client = chromadb.PersistentClient(path=CHROMA_DIR)
+        collection = client.get_or_create_collection(
+            name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
 
     # Chroma caps the number of records per call; upsert in batches.
     BATCH = 5000
@@ -488,10 +497,29 @@ if __name__ == "__main__":
     if not pdfs:
         sys.exit(f"no PDFs found in {PDFS_DIR}")
 
+    # Per-document, resumable storage (crash-resilient for long VLM builds): load the
+    # embedder + open the collection ONCE, then build -> embed -> store each doc in
+    # turn. A doc already present in the store is SKIPPED, so a re-run resumes where an
+    # interrupted run left off (idempotent upsert keyed on deterministic chunk_ids).
+    # An interruption costs at most the doc in flight, not the whole run.
+    import chromadb
+    from sentence_transformers import SentenceTransformer
+    print(f"loading {EMBED_MODEL} on {DEVICE} ...")
+    embed_model = SentenceTransformer(EMBED_MODEL, device=DEVICE)
+    client = chromadb.PersistentClient(path=CHROMA_DIR)
+    collection = client.get_or_create_collection(
+        name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
+
+    def already_ingested(name):
+        return bool(collection.get(where={"source_file": name}, limit=1)["ids"])
+
     t0 = time.time()
-    all_chunks = []
-    for pdf in pdfs:
-        print(f"\n--- {pdf.name} ---", flush=True)
+    for n, pdf in enumerate(pdfs, 1):
+        if already_ingested(pdf.name):
+            print(f"\n--- [{n}/{len(pdfs)}] {pdf.name} --- already in store, SKIP (resume)",
+                  flush=True)
+            continue
+        print(f"\n--- [{n}/{len(pdfs)}] {pdf.name} ---", flush=True)
         chunks, stats = build_all_chunks(str(pdf), pdf.name, use_vlm=use_vlm)
         by_type = Counter(c.source_type for c in chunks)
         print("  " + ", ".join(f"{t}={n}" for t, n in by_type.most_common()))
@@ -499,12 +527,12 @@ if __name__ == "__main__":
               + (f"  vlm_fail={stats['vlm_fail']}  figure_fail={stats['figure_fail']}"
                  f"  figure_noise={stats['figure_noise']}"
                  if use_vlm else ""))
-        all_chunks += chunks
+        embed_and_store(chunks, model=embed_model, collection=collection)   # checkpoint THIS doc
+        print(f"  stored -> collection now holds {collection.count()} vectors "
+              f"(elapsed {(time.time() - t0) / 60:.0f} min)", flush=True)
 
-    print(f"\n=== built {len(all_chunks)} chunks from {len(pdfs)} PDF(s) "
-          f"in {time.time() - t0:.1f}s ===")
-    print("\n=== embed + store ===")
-    collection = embed_and_store(all_chunks)
-    print(f"\ncollection '{COLLECTION_NAME}' now holds {collection.count()} vectors")
-    # NOTE: removing a PDF from the folder does NOT delete its old chunks (upsert
-    # only adds/updates). For a clean change of the doc set, delete data/chroma first.
+    print(f"\n=== done: '{COLLECTION_NAME}' holds {collection.count()} vectors from "
+          f"{len(pdfs)} PDF(s) in {(time.time() - t0) / 60:.1f} min ===")
+    # NOTE: a doc already in the store is SKIPPED on re-run (resume). To force a clean
+    # rebuild, delete the chroma dir first. Removing a PDF from the folder does NOT
+    # delete its chunks (upsert only adds/updates).
