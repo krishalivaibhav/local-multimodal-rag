@@ -26,6 +26,11 @@ _DOT_LEADER = re.compile(r"\.\s*\.\s*\.")                # TOC / list-of-figures
 _VLM_NOISE = ("book cover", "title graphic", "title slide", "informational banner",
               "promotional", "decorative", "cover page", "section divider",
               "table of contents")
+# A genuinely-transcribed display equation (finding #45 math tweak): $$...$$ delimiters OR a
+# real LaTeX command. Conservative on purpose -- a stray '$' on a banner must NOT match, so we
+# require double-dollar math or a backslash command, and the noise drops above still veto first.
+_LATEX_EQ = re.compile(r"\$\$.+?\$\$|\\(?:frac|sqrt|sum|int|prod|partial|nabla|cdot|times|"
+                       r"leq|geq|approx|alpha|beta|gamma|delta|sigma|omega|theta|lambda)\b", re.S)
 
 
 def is_real_figure(text):
@@ -33,6 +38,8 @@ def is_real_figure(text):
     hallucination on a decorative banner)? Conservative -- when in doubt, drop:
       - DROP if the VLM self-classified it as a cover / title graphic / decorative banner;
       - DROP if it has TOC dot-leaders (a list-of-figures page, not a figure);
+      - KEEP if it transcribed a genuine display equation as LaTeX (the #45 math tweak: an
+        equation has no 'FIGURE <n>' caption, so this branch is what lets it survive);
       - DROP if it lacks a real 'FIGURE <n>' caption (catches section-opener banners and acronym
         lists -- e.g. NASA p27, where the VLM hallucinated a 'process-flow diagram' from a chapter
         title that has no figure caption);
@@ -43,6 +50,8 @@ def is_real_figure(text):
         return False
     if _DOT_LEADER.search(text or ""):
         return False
+    if _LATEX_EQ.search(text or ""):           # a transcribed display equation -- keep, no caption needed
+        return True
     return bool(_FIG_CAPTION.search(text or ""))
 
 

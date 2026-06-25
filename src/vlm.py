@@ -39,7 +39,8 @@ FIGURE_PROMPT = (
     "Describe this figure for search and question-answering. State what kind of "
     "figure it is (chart, diagram, schematic, plot, equation, ...), its title or "
     "caption if visible, the axes / labels / units, and the key relationship or "
-    "information it conveys. If it is an equation, transcribe it. Be concise and "
+    "information it conveys. If it is an equation, transcribe it exactly as LaTeX "
+    "wrapped in $$ ... $$ (use \\frac, ^, _, \\sqrt and Greek-letter names). Be concise and "
     "factual; do not speculate beyond what is shown."
 )
 
