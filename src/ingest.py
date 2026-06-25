@@ -399,7 +399,7 @@ def build_all_chunks(pdf_path, source_file, use_vlm=False):
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     chunks = []
-    stats = {"skip": defaultdict(int), "vlm_fail": 0, "figure_fail": 0}
+    stats = {"skip": defaultdict(int), "vlm_fail": 0, "figure_fail": 0, "figure_noise": 0}
 
     with fitz.open(pdf_path) as doc, pdfplumber.open(pdf_path) as pdf:
         n_pages = doc.page_count
@@ -497,6 +497,7 @@ if __name__ == "__main__":
         print("  " + ", ".join(f"{t}={n}" for t, n in by_type.most_common()))
         print(f"  skipped={dict(stats['skip'])}"
               + (f"  vlm_fail={stats['vlm_fail']}  figure_fail={stats['figure_fail']}"
+                 f"  figure_noise={stats['figure_noise']}"
                  if use_vlm else ""))
         all_chunks += chunks
 
