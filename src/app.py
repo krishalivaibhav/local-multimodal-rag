@@ -27,16 +27,11 @@ os.environ.setdefault("RAG_PARENT_TABLES", "1")
 os.environ.setdefault("RAG_RERANK", "1")
 os.environ.setdefault("RAG_DEDUP_REVISIONS", "1")   # cross-revision citation dedup (finding #44)
 
-# Apple-GPU acceleration: run the embedder + cross-encoder reranker on the M2 GPU (MPS). Measured
-# ~5x faster than CPU, and the rerank is the DOMINANT per-query cost (~35s -> ~6s). Safe for the
-# APP -- the MPS-OOM that forced CPU was an INGEST-time memory contention, absent when only serving
-# queries. setdefault + the availability check keep CPU as the fallback off-Mac.
-try:
-    import torch
-    if torch.backends.mps.is_available():
-        os.environ.setdefault("RAG_DEVICE", "mps")
-except Exception:
-    pass
+# NOTE on Apple-GPU (MPS): bge-on-MPS is ~5x faster for retrieval IN ISOLATION, but measured
+# NET-NEGATIVE end-to-end on this 16 GB Mac (131s CPU -> 161s MPS): the GPU memory it takes steals
+# from ollama/qwen, and the LLM dominates the query. So we keep the embedder/reranker on CPU here.
+# The real latency lever is the LLM (ollama is running 100% CPU when it should use Metal) + context
+# size, not the bge device. RAG_DEVICE=mps is available to opt in on a higher-memory Mac.
 
 import json
 import re
