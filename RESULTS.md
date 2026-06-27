@@ -7,6 +7,14 @@ in `findings.md` (35 findings); design rationale is in `defense_qa.md`.
 
 ## TL;DR
 
+- **Full system at scale -- 23 documents, 6 domains, 363 independently-authored & source-verified
+  cases:** **value 0.80 / right-document citation 0.83 / abstention 0.86** (327 answerable + 36
+  abstention). The largest, most independent test to date: questions authored by hand from the PDFs
+  (not from chunks), every key fact verified present in its source before scoring. Strongest domains
+  NASA (0.87/0.97) and aviation/PHAK (0.87/0.87); the feared inline-math gap is mild (math value 0.79);
+  the two diagnosed weak spots are the **810G near-duplicate citation leak** (810G answered correctly
+  but cites the identical newer 810H revision ~half the time -- the #42/#44 finding, quantified) and
+  **tables** (0.71, the field-wide open problem). See the dedicated section below.
 - **Single document (MIL-STD-810H), independent test set:** retrieval Hit@5 **1.00** /
   MRR 0.764; answer **value 0.80 / citation 0.65** (F1 **0.84 / 0.68**), with reliable
   abstention. This is the honest headline number.
@@ -84,6 +92,49 @@ first time and surfaced -- then fixed -- real bugs.
   ambiguity -- "page 501" is ambiguous across 3 docs). (finding #29)
 - **Abstention held under multi-doc:** the system refused rather than answer from the wrong
   document; it never fabricated a confident wrong-doc answer.
+
+## Large-scale independent evaluation (23 documents, 6 domains, 363 cases)
+
+The most comprehensive test to date: the multimodal store (`data/chroma_mm`, ~38.5k chunks from 23
+born-digital PDFs -- MIL-STD-810G/H, the NASA SE Handbook, NIST SP 800-61r2, two physics papers, and the
+17-chapter Pilot's Handbook of Aeronautical Knowledge) scored on **363 questions authored by hand from
+the documents**, with every key fact **verified present in its cited source before scoring** (verification
+caught 1 impossible page and 2 misattributed cases, fixed before the run). Citation is **doc-level** ("did
+the answer cite the right document?") -- robust to printed-vs-PDF page offsets and a direct measure of
+wrong-document leakage. Deterministic (answer LLM temperature 0); ~2.5 h on the M2 CPU.
+
+**Overall: value 0.80 (260/327) - right-doc citation 0.83 (271/327) - abstention 0.86 (31/36).**
+
+| Domain | n (ans + abs) | value | citation | abstention |
+|---|---|---|---|---|
+| NASA SE Handbook | 30 + 8 | **0.87** | **0.97** | 1.00 |
+| PHAK (aviation) | 118 + 7 | **0.87** | 0.87 | 0.71 |
+| Physics papers | 10 + 4 | 0.80 | 0.90 | 0.75 |
+| MIL-STD-810H | 94 + 9 | 0.76 | **0.93** | **1.00** |
+| MIL-STD-810G | 50 + 0 | 0.70 | **0.48** | -- |
+| NIST SP 800-61r2 | 25 + 8 | 0.68 | 0.76 | 0.75 |
+
+| By type | value | citation |
+|---|---|---|
+| Figure | 0.86 | 0.83 |
+| Prose | 0.80 | 0.86 |
+| Math | 0.79 | 0.74 |
+| Table | **0.71** | 0.73 |
+| Abstention | (0.86) | -- |
+
+- **The inline-math gap is mild (math value 0.79).** Born-digital equations garble on extraction
+  (exponents flatten, `10^14` -> `1014`), yet the model surfaces the right values 79% of the time --
+  the biggest worry going in, largely a non-issue. (finding #46)
+- **Abstention 0.86 across 36 traps** (including "named-but-no-value" traps where the topic *is* in the
+  doc) -- the safety property holds at scale.
+- **810G citation 0.48 is the near-duplicate leak, quantified.** 810G questions get *answered* (value
+  0.70) but cite 810H -- the identical newer revision -- about half the time; 810H cites itself fine
+  (0.93). Indistinguishable content, so grounding lands on the wrong revision. Expected and explained by
+  findings #42/#44 -- a clean motivation for the dedup/supersession work, not a silent failure.
+- **Tables (0.71) and NIST value (0.68) are the retrieval weak spot** -- some category tables don't
+  reliably surface. The clearest next lever.
+
+Harness: `src/eval_authored.py` (the 363 cases + the by-domain/by-type scorer).
 
 ## Tables -- the weak spot, decomposed honestly
 
