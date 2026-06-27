@@ -21,7 +21,7 @@ and "what the model claimed to stand on".
 import re
 
 from query import retrieve, route_query
-from generate import generate
+from generate import generate, generate_stream
 
 # Matches citation tags the model emits, e.g. [S1], [S12].
 _TAG_RE = re.compile(r"\[S(\d+)\]")
@@ -243,6 +243,39 @@ def answer_question(question, k=5, source_file=None, history=None):
         "cited": cited,
         "hallucinated": hallucinated,
         "sources": sources,             # structured provenance (source_file, page, ...)
+    }
+
+
+def answer_stream(question, k=5, source_file=None, history=None):
+    """Streaming sibling of answer_question: a GENERATOR that yields (partial_answer, None) while
+    the LLM streams its reply, then yields (full_answer, result_dict) ONCE at the end with the
+    resolved citations. result_dict has the same shape as answer_question()'s return. Lets a UI
+    show the answer appearing live; grounding / citation / abstention are unchanged."""
+    search_q = condense_question(question, history) if history else question
+    sf = source_file if source_file is not None else route_query(search_q)
+    res = retrieve(search_q, k=k, source_file=sf)
+    metadatas = res["metadatas"][0]
+    documents = res["documents"][0]
+    from config import PARENT_TABLES
+    if PARENT_TABLES:
+        metadatas, documents = expand_parent_tables(metadatas, documents)
+    messages, citation_map = build_messages(question, metadatas, documents, history=history)
+
+    answer_text = ""
+    for piece in generate_stream(messages):
+        answer_text += piece
+        yield answer_text, None
+
+    cited, hallucinated = resolve_citations(answer_text, citation_map)
+    sources = [
+        {"tag": f"S{i}", "source_file": m.get("source_file"), "page": m.get("page_number"),
+         "source_type": m.get("source_type"), "citation": citation_map[f"S{i}"],
+         "cited": f"S{i}" in cited, "text": d, "block_idx": m.get("block_idx")}
+        for i, (m, d) in enumerate(zip(metadatas, documents), start=1)
+    ]
+    yield answer_text, {
+        "question": question, "answer": answer_text, "citation_map": citation_map,
+        "cited": cited, "hallucinated": hallucinated, "sources": sources,
     }
 
 

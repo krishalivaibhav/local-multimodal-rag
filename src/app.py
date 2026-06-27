@@ -36,7 +36,7 @@ import fitz
 import gradio as gr
 from PIL import Image
 
-from answer import answer_question
+from answer import answer_question, answer_stream
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PDFS_DIR = _ROOT / "data" / "pdfs"
@@ -192,20 +192,31 @@ def _msg_text(content):
 
 
 def bot(history, doc_scope=_ALL_DOCS):
-    """Answer the latest user turn -> (history, sources markdown, gallery of cited pages).
+    """Answer the latest user turn, STREAMING the reply. A generator yielding
+    (history, sources_md, gallery): the answer appears token-by-token (perceived latency), then
+    the cited-sources panel fills in once the answer completes and citations resolve.
 
     doc_scope: the dropdown selection -- "All documents" (whole store) or a single source_file
     to constrain retrieval to (mode 2)."""
     if not history or history[-1].get("role") != "user":
-        return history, gr.update(), gr.update()
+        yield history, gr.update(), gr.update()
+        return
     message = _msg_text(history[-1].get("content"))
 
     if _GREETING.match(message) and len(message.split()) <= 4:
-        return history + [{"role": "assistant", "content": _INTRO}], _SOURCES_EMPTY, []
+        yield history + [{"role": "assistant", "content": _INTRO}], _SOURCES_EMPTY, []
+        return
 
     sf = None if (not doc_scope or doc_scope == _ALL_DOCS) else doc_scope   # mode 2: scope to one doc
-    res = answer_question(message, source_file=sf, history=history[:-1])    # scope + multi-turn
 
+    res = None
+    for partial, result in answer_stream(message, source_file=sf, history=history[:-1]):
+        if result is None:                                  # still streaming the answer text
+            yield history + [{"role": "assistant", "content": partial}], gr.update(), gr.update()
+        else:
+            res = result                                    # final item carries the resolved result
+
+    # answer complete -> build the cited-sources panel + cited-page gallery
     cards, gallery, seen = [], [], set()
     for s in res["sources"]:
         if not s["cited"]:
@@ -236,8 +247,7 @@ def bot(history, doc_scope=_ALL_DOCS):
     sources_md = "\n\n---\n\n".join(cards) if cards else \
         "_The answer cited no sources — it likely abstained because the documents don't cover this._"
 
-    history = history + [{"role": "assistant", "content": res["answer"]}]
-    return history, sources_md, gallery
+    yield history + [{"role": "assistant", "content": res["answer"]}], sources_md, gallery
 
 
 def log_vote(data: gr.LikeData):
@@ -303,4 +313,4 @@ with gr.Blocks(title="Local Multimodal RAG — technical-PDF Q&A") as demo:
 if __name__ == "__main__":
     # local only -- no public share link; the confidential corpus stays on the machine.
     # css hides Gradio's footer and styles the sources panel for a clean, professional UI.
-    demo.launch(css=_CSS, theme=_THEME)
+    demo.queue().launch(css=_CSS, theme=_THEME)   # queue() required for streaming generators

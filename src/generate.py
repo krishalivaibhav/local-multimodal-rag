@@ -38,6 +38,17 @@ def generate(messages, model=MODEL, temperature=0.0):
     return response["message"]["content"]
 
 
+def generate_stream(messages, model=MODEL, temperature=0.0):
+    """Same grounded decoding as generate(), but YIELD the reply chunk-by-chunk as the model
+    produces it (ollama stream=True). The caller concatenates the pieces; lets a UI show the
+    answer appearing live, which masks the M2-CPU latency without changing the final text."""
+    for chunk in ollama.chat(model=model, messages=messages,
+                             options={"temperature": temperature}, stream=True):
+        piece = chunk.get("message", {}).get("content", "")
+        if piece:
+            yield piece
+
+
 # HyDE (Hypothetical Document Embeddings). Under-specified queries that DESCRIBE a table
 # ("what test stands are in Table 6.1-2?") match the table's CAPTION, not its cells. HyDE
 # asks the LLM to write the answer it EXPECTS, then we retrieve on that text -- so the
