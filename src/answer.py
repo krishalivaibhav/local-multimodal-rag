@@ -49,6 +49,43 @@ Write the answer to be COMPLETE and CLEAR -- a reader should fully understand it
 ABSTAIN = "The provided sources do not contain this information."
 
 
+def _hist_text(content):
+    """A Gradio chat message's content -> plain text (string, or a structured {'text': ...} part)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        return content.get("text", "") or ""
+    return str(content) if content else ""
+
+
+# Conversational reasoning (multi-turn): rewrite a follow-up into a STANDALONE question using the
+# prior turns, so retrieval targets the right content -- "what about at 40,000 ft?" becomes a full
+# query. A small, cheap LLM call that runs ONLY when there is prior history; falls back to the raw
+# question on any failure so it can never block an answer.
+_CONDENSE_PROMPT = (
+    "You rewrite a follow-up question into a standalone question using the conversation so far. "
+    "Resolve pronouns and implicit references (it, that, there, the same one) into explicit terms "
+    "drawn from the conversation. Output ONLY the rewritten standalone question and nothing else. "
+    "If the follow-up is already standalone, repeat it unchanged.")
+
+
+def condense_question(question, history):
+    """Make `question` self-contained given prior turns. Citation tags are stripped from the
+    context first. Never raises -- returns the raw question on any failure or odd output."""
+    turns = [h for h in (history or []) if h.get("role") in ("user", "assistant")]
+    if not turns:
+        return question
+    convo = "\n".join(f"{h['role']}: {_TAG_RE.sub('', _hist_text(h.get('content')))}".strip()
+                      for h in turns[-6:])
+    try:
+        out = generate([{"role": "system", "content": _CONDENSE_PROMPT},
+                        {"role": "user", "content": f"Conversation so far:\n{convo}\n\n"
+                                                    f"Follow-up: {question}\n\nStandalone question:"}]).strip()
+        return out if (out and len(out) < 400) else question
+    except Exception:
+        return question
+
+
 def render_citation(meta):
     """Human-readable citation for a chunk, from its metadata, by source_type.
 
@@ -122,19 +159,22 @@ def format_sources(metadatas, documents):
     return "\n\n".join(lines), citation_map
 
 
-def build_messages(question, metadatas, documents):
+def build_messages(question, metadatas, documents, history=None):
     """Assemble the chat messages for the answer LLM.
 
-    System message = the stable rules. User message = the SOURCES block plus this
-    question. Returns (messages, citation_map) so the caller can resolve the
-    model's [S#] tags back to real page/table/row citations.
+    System message = the stable rules. Recent prior turns (citation tags stripped) are threaded
+    in as CONTEXT so the model can reason over the conversation -- but the grounding rules still
+    bind the ANSWER to the current SOURCES. User message = the SOURCES block plus this question.
+    Returns (messages, citation_map) so the caller can resolve [S#] tags to real citations.
     """
     sources_block, citation_map = format_sources(metadatas, documents)
-    user_content = f"SOURCES:\n{sources_block}\n\nQUESTION: {question}"
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
-    ]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for h in (history or [])[-4:]:                       # last ~2 turns of dialogue context
+        role = h.get("role")
+        if role in ("user", "assistant"):
+            messages.append({"role": role,
+                             "content": _TAG_RE.sub("", _hist_text(h.get("content"))).strip()})
+    messages.append({"role": "user", "content": f"SOURCES:\n{sources_block}\n\nQUESTION: {question}"})
     return messages, citation_map
 
 
@@ -157,20 +197,25 @@ def resolve_citations(answer_text, citation_map):
     return cited, hallucinated
 
 
-def answer_question(question, k=5, source_file=None):
-    """End-to-end: retrieve -> build grounded prompt -> generate -> resolve cites.
+def answer_question(question, k=5, source_file=None, history=None):
+    """End-to-end: (condense) -> retrieve -> build grounded prompt -> generate -> resolve cites.
 
     Returns a dict with the answer text, the full tag->citation map (all retrieved
     sources), the cited subset, and any hallucinated tags.
 
     source_file: scope retrieval to this one document, overriding the alias router.
     The upload app passes the just-uploaded PDF here so answers come from it.
+    history: prior chat turns ({role, content}); when present, the follow-up is rewritten into a
+    standalone query for retrieval, and the dialogue is threaded into the answer prompt (multi-turn).
     """
+    # conversational reasoning: resolve a follow-up against the dialogue BEFORE retrieving, so the
+    # search query is self-contained ("what about at 40,000 ft?" -> the full question).
+    search_q = condense_question(question, history) if history else question
     # doc routing (#23): if the query names one document, scope retrieval to it so a
     # near-duplicate (810G vs 810H) can't out-compete the intended doc. An explicit
     # source_file (e.g. the uploaded PDF) overrides the router.
-    sf = source_file if source_file is not None else route_query(question)
-    res = retrieve(question, k=k, source_file=sf)
+    sf = source_file if source_file is not None else route_query(search_q)
+    res = retrieve(search_q, k=k, source_file=sf)
     metadatas = res["metadatas"][0]
     documents = res["documents"][0]
     # small-to-big (#26): expand a retrieved table row into its full parent table
@@ -178,7 +223,7 @@ def answer_question(question, k=5, source_file=None):
     if PARENT_TABLES:
         metadatas, documents = expand_parent_tables(metadatas, documents)
 
-    messages, citation_map = build_messages(question, metadatas, documents)
+    messages, citation_map = build_messages(question, metadatas, documents, history=history)
     answer_text = generate(messages)
     cited, hallucinated = resolve_citations(answer_text, citation_map)
 

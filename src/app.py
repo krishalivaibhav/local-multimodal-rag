@@ -194,7 +194,7 @@ def bot(history):
     if _GREETING.match(message) and len(message.split()) <= 4:
         return history + [{"role": "assistant", "content": _INTRO}], _SOURCES_EMPTY, []
 
-    res = answer_question(message)
+    res = answer_question(message, history=history[:-1])   # prior turns -> multi-turn reasoning
 
     cards, gallery, seen = [], [], set()
     for s in res["sources"]:
