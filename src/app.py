@@ -27,6 +27,17 @@ os.environ.setdefault("RAG_PARENT_TABLES", "1")
 os.environ.setdefault("RAG_RERANK", "1")
 os.environ.setdefault("RAG_DEDUP_REVISIONS", "1")   # cross-revision citation dedup (finding #44)
 
+# Apple-GPU acceleration: run the embedder + cross-encoder reranker on the M2 GPU (MPS). Measured
+# ~5x faster than CPU, and the rerank is the DOMINANT per-query cost (~35s -> ~6s). Safe for the
+# APP -- the MPS-OOM that forced CPU was an INGEST-time memory contention, absent when only serving
+# queries. setdefault + the availability check keep CPU as the fallback off-Mac.
+try:
+    import torch
+    if torch.backends.mps.is_available():
+        os.environ.setdefault("RAG_DEVICE", "mps")
+except Exception:
+    pass
+
 import json
 import re
 import time
