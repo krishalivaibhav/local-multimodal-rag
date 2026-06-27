@@ -260,7 +260,13 @@ with gr.Blocks(title="Local Multimodal RAG — technical-PDF Q&A") as demo:
 
     with gr.Row():
         with gr.Column(scale=3):
-            chatbot = gr.Chatbot(height=560, show_label=False)
+            chatbot = gr.Chatbot(
+                height=560, show_label=False,
+                # Render $$...$$ as block math (KaTeX). Block delimiters ONLY -- not
+                # single $ -- so a literal dollar amount in an answer ("$5 per unit")
+                # isn't mis-rendered as math.
+                latex_delimiters=[{"left": "$$", "right": "$$", "display": True}],
+            )
             with gr.Row():
                 msg = gr.Textbox(show_label=False, container=False, autofocus=True, scale=9,
                                  placeholder="Ask about MIL-STD-810G/H or the NASA SE Handbook…")
