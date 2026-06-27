@@ -53,6 +53,12 @@ _RENDER_DPI = 150            # crisp enough to read a full page in the click-to-
 _SOURCES_EMPTY = "_Ask a question — the sources behind the answer will appear here, " \
                  "with the cited passage highlighted on the page._"
 
+# Document scope (mode 2): constrain retrieval to ONE doc. "All documents" (default) searches the
+# whole store; picking a doc scopes retrieval to it -- which fixes the near-duplicate wrong-doc
+# citation leak (810G vs 810H) and prunes the search space (faster).
+_ALL_DOCS = "All documents"
+_DOC_CHOICES = [_ALL_DOCS] + sorted(p.name for p in _PDFS_DIR.glob("*.pdf"))
+
 EXAMPLES = [
     "In MIL-STD-810G Method 512.5 (Immersion), what can the test verify in lieu of a rain test?",
     "In NASA's project-type classification (Table 3.11-1), what kind of mission is Type A?",
@@ -185,8 +191,11 @@ def _msg_text(content):
     return str(content or "")
 
 
-def bot(history):
-    """Answer the latest user turn -> (history, sources markdown, gallery of cited pages)."""
+def bot(history, doc_scope=_ALL_DOCS):
+    """Answer the latest user turn -> (history, sources markdown, gallery of cited pages).
+
+    doc_scope: the dropdown selection -- "All documents" (whole store) or a single source_file
+    to constrain retrieval to (mode 2)."""
     if not history or history[-1].get("role") != "user":
         return history, gr.update(), gr.update()
     message = _msg_text(history[-1].get("content"))
@@ -194,7 +203,8 @@ def bot(history):
     if _GREETING.match(message) and len(message.split()) <= 4:
         return history + [{"role": "assistant", "content": _INTRO}], _SOURCES_EMPTY, []
 
-    res = answer_question(message, history=history[:-1])   # prior turns -> multi-turn reasoning
+    sf = None if (not doc_scope or doc_scope == _ALL_DOCS) else doc_scope   # mode 2: scope to one doc
+    res = answer_question(message, source_file=sf, history=history[:-1])    # scope + multi-turn
 
     cards, gallery, seen = [], [], set()
     for s in res["sources"]:
@@ -260,6 +270,9 @@ with gr.Blocks(title="Local Multimodal RAG — technical-PDF Q&A") as demo:
 
     with gr.Row():
         with gr.Column(scale=3):
+            doc_scope = gr.Dropdown(
+                _DOC_CHOICES, value=_ALL_DOCS, label="📂 Search scope", filterable=True,
+                info="Limit to one document (more precise, faster), or search everything (default).")
             chatbot = gr.Chatbot(
                 height=560, show_label=False,
                 # Render $$...$$ as block math (KaTeX). Block delimiters ONLY -- not
@@ -283,7 +296,7 @@ with gr.Blocks(title="Local Multimodal RAG — technical-PDF Q&A") as demo:
     # show_progress_on=[chatbot] keeps the "thinking" spinner on the chat, not the Sources panel.
     for trigger in (msg.submit, send.click):
         trigger(add_user, [msg, chatbot], [chatbot, msg], queue=False).then(
-            bot, [chatbot], [chatbot, sources_md, gallery], show_progress_on=[chatbot])
+            bot, [chatbot, doc_scope], [chatbot, sources_md, gallery], show_progress_on=[chatbot])
     chatbot.like(log_vote)
 
 
