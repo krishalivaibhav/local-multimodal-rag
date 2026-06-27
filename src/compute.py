@@ -14,6 +14,7 @@ sympy-parseable string. Parsing is SANDBOXED: unknown names become free Symbols
 there is no eval() and no path to an arbitrary callable.
 """
 
+import json
 import re
 
 import sympy as sp
@@ -52,6 +53,13 @@ _GREEK = ("alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
           "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma", "tau",
           "upsilon", "phi", "chi", "psi", "omega")
 
+# Unicode Greek letters the LLM often emits (π, α, Δ, ...) -> ASCII names sympy understands.
+_UNICODE_GREEK = {"α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon",
+                  "ζ": "zeta", "η": "eta", "θ": "theta", "κ": "kappa", "λ": "lambda",
+                  "μ": "mu", "ν": "nu", "ξ": "xi", "π": "pi", "ρ": "rho", "σ": "sigma",
+                  "τ": "tau", "φ": "phi", "χ": "chi", "ψ": "psi", "ω": "omega",
+                  "Δ": "Delta", "Σ": "Sigma", "Ω": "Omega"}
+
 
 def latex_to_expr(s):
     """Best-effort normalise common LaTeX into a sympy-parseable string. NOT a full
@@ -75,14 +83,19 @@ def latex_to_expr(s):
     return s.strip()
 
 
-def parse_formula(text):
-    """Parse a formula string (plain or LaTeX) into a sympy expression, sandboxed:
-    unknown names -> free Symbols; only _ALLOWED is callable (global_dict={})."""
+def parse_formula(text, symbols=None):
+    """Parse a formula string (plain or LaTeX) into a sympy expression, sandboxed: unknown names
+    -> free Symbols; only _ALLOWED is callable. `symbols` (the known variable names) are registered
+    as atomic Symbols so a multi-letter name like 'weight' is NOT split into a product w*e*i*g*h*t
+    by implicit multiplication."""
     raw = text or ""
     s = latex_to_expr(raw) if ("\\" in raw or "$" in raw) else raw.strip()
+    for u, a in _UNICODE_GREEK.items():  # unicode π/α/Δ -> pi/alpha/Delta
+        s = s.replace(u, a)
     if s.count("=") == 1:                # "G = pi/2 ..." -> evaluate the RHS only
         s = s.split("=", 1)[1]
-    return parse_expr(s, local_dict={}, global_dict=_GLOBALS,
+    local = {n: sp.Symbol(n) for n in (symbols or [])}
+    return parse_expr(s, local_dict=local, global_dict=_GLOBALS,
                       transformations=_TRANSFORMS, evaluate=True)
 
 
@@ -100,7 +113,7 @@ def evaluate(formula, values=None, digits=6):
     out = {"ok": False, "expr": None, "symbols": [], "missing": [],
            "substituted": None, "result": None, "error": None}
     try:
-        expr = parse_formula(formula)
+        expr = parse_formula(formula, symbols=list(values.keys()))
     except Exception as e:
         out["error"] = f"could not parse formula: {type(e).__name__}: {e}"
         return out
@@ -144,6 +157,51 @@ def format_result(res):
         return (f"Need values for: {', '.join(res['missing'])}.  "
                 f"Formula: {res['expr']}")
     return f"{res['expr']}  =  {res['result']:g}   (with {res['substituted']})"
+
+
+# --- chat integration: detect a "compute this formula with these values" request -------------
+# Cheap gate first (a trigger word, or a `var = number` assignment), so ordinary questions never
+# pay for the LLM extraction below.
+_COMPUTE_TRIGGER = re.compile(r"\b(calculate|compute|evaluate|work out|plug in)\b|[a-zA-Z]\s*=\s*-?\d", re.I)
+
+_EXTRACT_PROMPT = (
+    "Extract the math formula and the variable values from the user's request. Output STRICT JSON "
+    'with two keys: {"formula": "<expression, plain or LaTeX>", "values": {"<var>": <number>, ...}}. '
+    "Use the exact variable names that appear in the formula. If the request is NOT asking to compute "
+    "a formula with specific numeric values, output exactly: {}")
+
+
+def looks_computational(question):
+    """Cheap gate: does this look like a 'compute a formula with these values' request?"""
+    return bool(_COMPUTE_TRIGGER.search(question or ""))
+
+
+def try_compute(question):
+    """If `question` asks to compute a formula with given values, extract the formula + values with
+    the LLM, evaluate them DETERMINISTICALLY with sympy, and return an auditable markdown result.
+    Returns None if it is not such a request (-> caller falls back to normal QA). The arithmetic is
+    always sympy's, never the language model's -- the LLM only parses the request."""
+    if not looks_computational(question):
+        return None
+    from generate import generate                       # lazy import: avoid a module cycle
+    try:
+        raw = generate([{"role": "system", "content": _EXTRACT_PROMPT},
+                        {"role": "user", "content": question}]).strip()
+        raw = raw[raw.find("{"): raw.rfind("}") + 1]     # strip any prose around the JSON
+        spec = json.loads(raw)
+    except Exception:
+        return None
+    formula, values = spec.get("formula"), spec.get("values")
+    if not formula or not isinstance(values, dict) or not values:
+        return None
+    r = evaluate(formula, values)
+    if not r["ok"]:
+        return None
+    subs = ", ".join(f"{k} = {v}" for k, v in values.items())
+    result = f"{r['result']:g}" if isinstance(r["result"], float) else str(r["result"])
+    return (f"**= {result}**\n\n"
+            f"$$ {r['expr']} $$\n\n"
+            f"_Computed locally with sympy (not the language model) — substituting {subs}._")
 
 
 if __name__ == "__main__":

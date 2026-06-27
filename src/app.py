@@ -37,6 +37,7 @@ import gradio as gr
 from PIL import Image
 
 from answer import answer_question, answer_stream
+from compute import try_compute
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PDFS_DIR = _ROOT / "data" / "pdfs"
@@ -205,6 +206,14 @@ def bot(history, doc_scope=_ALL_DOCS):
 
     if _GREETING.match(message) and len(message.split()) <= 4:
         yield history + [{"role": "assistant", "content": _INTRO}], _SOURCES_EMPTY, []
+        return
+
+    # math compute (the "plug in values" feature): if this is a formula+values request, compute it
+    # deterministically with sympy instead of asking the LLM to do the arithmetic.
+    comp = try_compute(message)
+    if comp:
+        yield history + [{"role": "assistant", "content": comp}], \
+              "_Computed locally with sympy — deterministic, not retrieved from a document._", []
         return
 
     sf = None if (not doc_scope or doc_scope == _ALL_DOCS) else doc_scope   # mode 2: scope to one doc
