@@ -276,7 +276,10 @@ _CSS = """
 footer {display: none !important}
 #sources_panel {max-height: 78vh; overflow-y: auto; padding-right: 4px;}
 #sources_md blockquote {border-left: 3px solid #2a9d8f; background: #f5f8f8;
-    padding: 6px 12px; margin: 4px 0; border-radius: 4px; font-size: 0.9em; color: #2b3a42;}
+    padding: 6px 12px; margin: 4px 0; border-radius: 4px; font-size: 0.9em;}
+/* force the snippet text dark on the light card -- the dark theme otherwise colors the inner
+   <p> light, giving invisible white-on-white text (the "blank boxes"). */
+#sources_md blockquote, #sources_md blockquote * {color: #2b3a42 !important;}
 #sources_md hr {margin: 12px 0; border: none; border-top: 1px solid #e6e9ec;}
 """
 
@@ -304,6 +307,7 @@ with gr.Blocks(title="Local Multimodal RAG — technical-PDF Q&A") as demo:
                                  placeholder="Ask about MIL-STD-810G/H or the NASA SE Handbook…")
                 send = gr.Button("Send", variant="primary", scale=1, min_width=90)
             gr.Examples(examples=EXAMPLES, inputs=msg, label="Try one")
+            quote_btn = gr.Button("💬 Quote selected text → reply", size="sm", variant="secondary")
         with gr.Column(scale=2, elem_id="sources_panel"):
             gr.Markdown("#### 📄 Cited sources")
             # Click a thumbnail to enlarge it; the ⤢ Fullscreen control reads it full screen
@@ -317,6 +321,14 @@ with gr.Blocks(title="Local Multimodal RAG — technical-PDF Q&A") as demo:
         trigger(add_user, [msg, chatbot], [chatbot, msg], queue=False).then(
             bot, [chatbot, doc_scope], [chatbot, sources_md, gallery], show_progress_on=[chatbot])
     chatbot.like(log_vote)
+    # reply-to-text: select any text in the chat (an answer, a cited snippet), click -> it's quoted
+    # into the input box; then type your follow-up. Pure client-side JS reads the browser selection.
+    quote_btn.click(None, [msg], [msg], js="""(cur) => {
+        const sel = (window.getSelection ? window.getSelection().toString() : '').trim();
+        if (!sel) return cur;
+        const q = '> ' + sel + '\\n\\n';
+        return (cur && cur.trim()) ? (q + cur) : q;
+    }""")
 
 
 if __name__ == "__main__":
