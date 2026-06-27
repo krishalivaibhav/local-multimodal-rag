@@ -36,6 +36,7 @@ Rules you must follow:
 1. Use ONLY the information in the SOURCES provided in the user message. Never use outside knowledge or guess.
 2. Cite every factual statement with its source tag in square brackets, e.g. [S1] or [S2][S4].
 3. If the SOURCES contain nothing relevant, reply with EXACTLY this sentence and nothing else: "The provided sources do not contain this information." If they cover only part of the question, answer that part and then state plainly what is not covered.
+4. When a value depends on a unit or a specific labelled column (e.g. a row gives "Temperature (°C): -76. Temperature (°F): -105"), take the value from the column whose label MATCHES the unit asked for. Never return a neighbouring column's value.
 
 Write the answer to be COMPLETE and CLEAR -- a reader should fully understand it WITHOUT seeing the sources:
 - First, directly answer the question or define the term in plain language.

@@ -328,6 +328,7 @@ def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use
         # finding #37: is this a LIST typeset as a table (no relational structure)?
         caption = find_table_caption(fpage, table.bbox)
         as_list = looks_like_list(caption)      # deterministic caption gate (option b)
+        vlm_ok = False                          # did the VLM produce authoritative rows?
 
         # don't send a list to the VLM per-row path either -- the "header: cell" format
         # would mangle it the same way the text path does.
@@ -337,7 +338,9 @@ def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use
                 md = transcribe_table(image_path)
                 # per-row key:value chunks (finding #24): whole-table VLM chunks don't
                 # retrieve (#22), per-row does, and key:value text beats markdown pipes.
-                chunks += build_vlm_row_chunks(md, page_number, source_file, table_idx)
+                vlm_chunks = build_vlm_row_chunks(md, page_number, source_file, table_idx)
+                chunks += vlm_chunks
+                vlm_ok = bool(vlm_chunks)        # VLM rows are authoritative for this table
             except Exception as e:
                 if stats is not None:
                     stats["vlm_fail"] += 1
@@ -355,7 +358,11 @@ def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use
                 source_type="table_list",
                 table_idx=table_idx,
             ))
-            if not as_list:                     # relational table -> per-row format Y
+            if not as_list and not vlm_ok:      # relational table -> per-row format Y
+                # ...but ONLY when the VLM did NOT supersede it: the pdfplumber text path
+                # garbles multi-row/multi-unit headers (e.g. p1075 "Temperature: ... -105"),
+                # and a garbled sibling COMPETES with the clean VLM row and misleads the
+                # answer LLM (C/F bug). When the VLM succeeded, its rows are authoritative.
                 header = rows[0]
                 # data rows start at table-row index 1 (row 0 is the header)
                 for row_idx, row in enumerate(rows[1:], start=1):
@@ -369,14 +376,15 @@ def extract_table_chunks(ppage, fpage, page_number, source_file, stats=None, use
                     ))
             # if as_list: skip per-row -- "header: cell" would invent a fake header
         elif reason == "col_disjoint":          # malformed -> flat format B
-            chunks.append(Chunk(
-                text=build_flat_text(rows, page_number),
-                source_file=source_file,
-                page_number=page_number,
-                source_type="table_flat",
-                table_idx=table_idx,
-                table_quality="degenerate",
-            ))
+            if not vlm_ok:                       # flat fallback only when VLM didn't supersede
+                chunks.append(Chunk(
+                    text=build_flat_text(rows, page_number),
+                    source_file=source_file,
+                    page_number=page_number,
+                    source_type="table_flat",
+                    table_idx=table_idx,
+                    table_quality="degenerate",
+                ))
         else:                                   # empty_content/too_few_rows/single_col
             if stats is not None:
                 stats["skip"][reason] += 1

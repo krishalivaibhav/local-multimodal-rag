@@ -26,8 +26,11 @@ _client = ollama.Client(timeout=TIMEOUT_S)
 # (finding #20: p1075 Table XXIV's "Temperature -> C/F" header).
 TABLE_PROMPT = (
     "Transcribe this table to GitHub-flavored markdown. Preserve every row, "
-    "column and header exactly as shown, including units. If a header spans "
-    "multiple columns, repeat it so each column has its own complete label. "
+    "column and header exactly as shown, including units. When a header spans "
+    "several columns that each carry their own unit or sub-label, MERGE the spanning "
+    "header with each unit into a complete, DISTINCT label -- e.g. a 'Temperature' "
+    "header above '°C' and '°F' columns becomes 'Temperature (°C)' and "
+    "'Temperature (°F)', never two columns both labelled 'Temperature'. "
     "Do not summarise, infer, or add anything. Output only the markdown table."
 )
 
@@ -68,9 +71,11 @@ def transcribe_table(image_path, model=VLM_MODEL, temperature=0.0):
 PAGE_TABLE_PROMPT = (
     "This is a page from a technical document. Transcribe ONLY the data table(s) on "
     "it to GitHub-flavored markdown -- one markdown table per table, separated by a "
-    "blank line. Preserve every row, column and header exactly, including units; if a "
-    "header is grouped, give each sub-column a complete label. Ignore body prose, "
-    "headers/footers and figures. If the page contains no data table, output exactly: NONE"
+    "blank line. Preserve every row, column and header exactly, including units; when a "
+    "header spans sub-columns with their own units, MERGE them into distinct labels "
+    "(e.g. 'Temperature (°C)' / 'Temperature (°F)', never two columns both 'Temperature'). "
+    "Ignore body prose, headers/footers and figures. If the page contains no data table, "
+    "output exactly: NONE"
 )
 
 
