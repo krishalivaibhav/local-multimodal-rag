@@ -12,6 +12,14 @@ Runs fully on-device (127.0.0.1); no data leaves the machine. Same GPU/feature d
 """
 import os
 
+# Query the FULL multimodal 23-doc store (chroma_mm), not the old 3-doc data/chroma default.
+# The document selector lists every PDF in data/pdfs, so the store it queries must hold them all --
+# otherwise a scoped question (e.g. a PHAK chapter) retrieves nothing and the answer is ungrounded.
+# setdefault so an explicit RAG_CHROMA_DIR in the shell still wins. MUST precede the config import.
+os.environ.setdefault(
+    "RAG_CHROMA_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "chroma_mm"),
+)
 os.environ.setdefault("RAG_RERANK", "1")
 os.environ.setdefault("RAG_DEDUP_REVISIONS", "1")
 try:                                                    # embedder + reranker on the Apple GPU

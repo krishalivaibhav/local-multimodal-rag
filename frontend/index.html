@@ -188,12 +188,8 @@ function renderDocButton() {
     <span style="color:var(--muted);display:flex;">${ICON.chevron}</span>`;
 }
 
-function renderDocMenu() {
-  const host = $('#docMenu');
-  if (!state.menuOpen) { host.innerHTML=''; return; }
-  const q = state.docQuery.trim().toLowerCase();
-  const list = state.docs.filter(d => !q || d.name.toLowerCase().includes(q));
-  const rows = list.map(d => `
+function docRowHtml(d) {
+  return `
     <button data-doc="${esc(d.id)}" class="docRow" style="width:100%;display:flex;align-items:center;gap:11px;padding:9px;background:${d.id===state.docId?'var(--hover)':'transparent'};border:none;border-radius:8px;cursor:pointer;text-align:left;">
       <span class="mono" style="width:24px;height:24px;flex:0 0 24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;background:${d.color};">${esc(d.tag)}</span>
       <span style="flex:1;min-width:0;display:flex;flex-direction:column;line-height:1;">
@@ -201,7 +197,26 @@ function renderDocMenu() {
         <span style="font-size:10.5px;color:var(--muted);margin-top:3px;">${esc(d.meta||'')}</span>
       </span>
       ${d.id===state.docId ? `<span style="color:var(--accent);display:flex;">${ICON.check}</span>` : ''}
-    </button>`).join('');
+    </button>`;
+}
+
+// Only the ROW list re-renders as the user types -- the <input> element is left untouched, so the
+// caret/selection are preserved (rebuilding the input each keystroke is what caused select-all-on-type).
+function renderDocRows() {
+  const host = $('#docRows'); if (!host) return;
+  const q = state.docQuery.trim().toLowerCase();
+  const list = state.docs.filter(d => !q || d.name.toLowerCase().includes(q));
+  host.innerHTML = list.length
+    ? list.map(docRowHtml).join('')
+    : `<div class="mono" style="padding:16px 10px 18px;text-align:center;font-size:11.5px;color:var(--muted);">No documents match “${esc(state.docQuery)}”</div>`;
+  host.querySelectorAll('.docRow').forEach(b => b.onclick = () => {
+    state.docId = b.getAttribute('data-doc'); state.menuOpen = false; renderDocMenu(); renderDocButton();
+  });
+}
+
+function renderDocMenu() {
+  const host = $('#docMenu');
+  if (!state.menuOpen) { host.innerHTML=''; return; }
   host.innerHTML = `
     <div style="position:absolute;top:46px;left:0;width:296px;background:var(--surface-2);border:1px solid var(--border-2);border-radius:12px;box-shadow:0 12px 34px rgba(40,36,28,.16);padding:6px;z-index:50;">
       <div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;margin:2px 2px 6px;background:var(--surface-3);border:1px solid var(--border-2);border-radius:8px;">
@@ -209,14 +224,12 @@ function renderDocMenu() {
         <input id="docSearch" class="mono" placeholder="Search documents by name…" value="${esc(state.docQuery)}" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font-size:12px;color:var(--text);padding:0;">
       </div>
       <div class="mono" style="font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--muted-2);padding:3px 9px 8px;">Retrieve from</div>
-      ${list.length ? rows : `<div class="mono" style="padding:16px 10px 18px;text-align:center;font-size:11.5px;color:var(--muted);">No documents match “${esc(state.docQuery)}”</div>`}
+      <div id="docRows"></div>
     </div>
     <div id="docScrim" style="position:fixed;inset:0;z-index:45;"></div>`;
-  $('#docSearch').oninput = (e) => { state.docQuery = e.target.value; renderDocMenu(); $('#docSearch').focus(); };
+  $('#docSearch').oninput = (e) => { state.docQuery = e.target.value; renderDocRows(); };
   $('#docScrim').onclick = () => { state.menuOpen=false; renderDocMenu(); };
-  host.querySelectorAll('.docRow').forEach(b => b.onclick = () => {
-    state.docId = b.getAttribute('data-doc'); state.menuOpen=false; renderDocMenu(); renderDocButton();
-  });
+  renderDocRows();
 }
 
 async function loadDocs() {
