@@ -27,11 +27,18 @@ os.environ.setdefault("RAG_PARENT_TABLES", "1")
 os.environ.setdefault("RAG_RERANK", "1")
 os.environ.setdefault("RAG_DEDUP_REVISIONS", "1")   # cross-revision citation dedup (finding #44)
 
-# NOTE on Apple-GPU (MPS): bge-on-MPS is ~5x faster for retrieval IN ISOLATION, but measured
-# NET-NEGATIVE end-to-end on this 16 GB Mac (131s CPU -> 161s MPS): the GPU memory it takes steals
-# from ollama/qwen, and the LLM dominates the query. So we keep the embedder/reranker on CPU here.
-# The real latency lever is the LLM (ollama is running 100% CPU when it should use Metal) + context
-# size, not the bge device. RAG_DEVICE=mps is available to opt in on a higher-memory Mac.
+# Apple-GPU (MPS) for the embedder + reranker. An earlier measurement found this net-negative, but
+# that test was CONFOUNDED: ollama/qwen was stuck on CPU at the time, so bge-on-MPS fought the CPU
+# LLM for system RAM. With qwen correctly resident on the GPU (fresh ollama + free memory), the
+# reranker coexists on the GPU cleanly -- verified: qwen stays 100% GPU, no OOM, ~2s/query faster.
+# setdefault + the availability check keep CPU as the fallback off-Mac. Assumes memory headroom
+# (close heavy apps); if MPS ever OOMs or evicts qwen, set RAG_DEVICE=cpu to revert.
+try:
+    import torch
+    if torch.backends.mps.is_available():
+        os.environ.setdefault("RAG_DEVICE", "mps")
+except Exception:
+    pass
 
 import json
 import re
