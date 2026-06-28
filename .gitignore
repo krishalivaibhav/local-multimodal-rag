@@ -83,3 +83,8 @@ defense_qa.md
 GPU_RUNBOOK.md
 .playwright-mcp/
 atlas-*.png
+
+# local design source + generated artifacts (never commit)
+graphify-out/
+Local Multimodal RAG Interface/
+GUI_Test_Sheet.pdf
