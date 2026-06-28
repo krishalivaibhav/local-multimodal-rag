@@ -81,3 +81,5 @@ findings.md
 deferred.md
 defense_qa.md
 GPU_RUNBOOK.md
+.playwright-mcp/
+atlas-*.png
