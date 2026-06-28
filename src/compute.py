@@ -199,9 +199,19 @@ def try_compute(question):
         return None
     subs = ", ".join(f"{k} = {v}" for k, v in values.items())
     result = f"{r['result']:g}" if isinstance(r["result"], float) else str(r["result"])
-    return (f"**= {result}**\n\n"
-            f"$$ {r['expr']} $$\n\n"
+    return (f"**{_pretty_expr(r['expr'])} = {result}**\n\n"
             f"_Computed locally with sympy (not the language model) — substituting {subs}._")
+
+
+_SUPERSCRIPT = {"0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+                "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"}
+
+
+def _pretty_expr(expr):
+    """Render a sympy expression string for humans: a**2 -> a², a*b -> a·b. No LaTeX delimiters --
+    the UI shows plain text, so $$...$$ and ** would leak through as literal characters."""
+    expr = re.sub(r"\*\*(\d+)", lambda m: "".join(_SUPERSCRIPT[d] for d in m.group(1)), expr)
+    return expr.replace("*", "·")
 
 
 if __name__ == "__main__":
