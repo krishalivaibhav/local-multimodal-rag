@@ -338,6 +338,16 @@ with gr.Blocks(title="Local Multimodal RAG — technical-PDF Q&A") as demo:
 
 
 if __name__ == "__main__":
+    # Preload the models (embedder + reranker + LLM-on-GPU) so the FIRST user query isn't slow --
+    # otherwise it pays a ~10-15s one-time load on top of the answer. A throwaway question warms
+    # the whole path; keep_alive (generate.py) then keeps qwen resident so later queries stay fast.
+    try:
+        print("Warming up models (embedder + reranker + LLM)...", flush=True)
+        answer_question("warmup")
+        print("Models warm — first query will be fast.", flush=True)
+    except Exception as e:
+        print(f"(warmup skipped: {e})", flush=True)
+
     # local only -- no public share link; the confidential corpus stays on the machine.
     # css hides Gradio's footer and styles the sources panel for a clean, professional UI.
     demo.queue().launch(css=_CSS, theme=_THEME)   # queue() required for streaming generators

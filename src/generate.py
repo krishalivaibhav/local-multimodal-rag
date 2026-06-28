@@ -13,6 +13,8 @@ Why this shape:
   - Ollama runs the same code on the dev Mac (Metal) and the target A1000 (CUDA).
 """
 
+import os
+
 import ollama
 
 from config import LLM_MODEL
@@ -20,6 +22,11 @@ from config import LLM_MODEL
 # The single place the model choice lives (config.LLM_MODEL / RAG_LLM_MODEL).
 # Swap target by setting that env var, e.g. "llama3.1:8b-instruct-q4_K_M".
 MODEL = LLM_MODEL
+
+# Keep the model resident in (GPU) memory between requests, so a query never pays a cold
+# reload -- and never risks reloading onto CPU during a brief memory dip. "30m" = stay loaded
+# 30 min after each use; set RAG_OLLAMA_KEEP_ALIVE=-1 to pin it for the whole session.
+KEEP_ALIVE = os.environ.get("RAG_OLLAMA_KEEP_ALIVE", "30m")
 
 
 def generate(messages, model=MODEL, temperature=0.0):
@@ -34,6 +41,7 @@ def generate(messages, model=MODEL, temperature=0.0):
         model=model,
         messages=messages,
         options={"temperature": temperature},
+        keep_alive=KEEP_ALIVE,
     )
     return response["message"]["content"]
 
@@ -43,7 +51,8 @@ def generate_stream(messages, model=MODEL, temperature=0.0):
     produces it (ollama stream=True). The caller concatenates the pieces; lets a UI show the
     answer appearing live, which masks the M2-CPU latency without changing the final text."""
     for chunk in ollama.chat(model=model, messages=messages,
-                             options={"temperature": temperature}, stream=True):
+                             options={"temperature": temperature}, stream=True,
+                             keep_alive=KEEP_ALIVE):
         piece = chunk.get("message", {}).get("content", "")
         if piece:
             yield piece
