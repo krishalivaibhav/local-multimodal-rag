@@ -224,7 +224,7 @@ function renderDocMenu() {
         <input id="docSearch" class="mono" placeholder="Search documents by name…" value="${esc(state.docQuery)}" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font-size:12px;color:var(--text);padding:0;">
       </div>
       <div class="mono" style="font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--muted-2);padding:3px 9px 8px;">Retrieve from</div>
-      <div id="docRows"></div>
+      <div id="docRows" style="max-height:44vh;overflow-y:auto;overflow-x:hidden;"></div>
     </div>
     <div id="docScrim" style="position:fixed;inset:0;z-index:45;"></div>`;
   $('#docSearch').oninput = (e) => { state.docQuery = e.target.value; renderDocRows(); };
@@ -518,7 +518,7 @@ function renderViewer(v) {
             <button id="zIn" class="hov-soft" style="width:22px;height:22px;border:none;background:transparent;border-radius:5px;cursor:pointer;color:var(--text-3);font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;">+</button>
           </span>
         </div>
-        <div id="vp" style="overflow:hidden;background:var(--surface-3);cursor:grab;">
+        <div id="vp" style="overflow:hidden;background:var(--surface-3);cursor:grab;user-select:none;-webkit-user-select:none;">
           ${v.image_url ? `<img id="vpImg" src="${esc(v.image_url)}" alt="" style="display:block;width:100%;transform-origin:top left;transition:transform .08s ease-out;user-select:none;-webkit-user-drag:none;">` : `<div class="mono" style="padding:40px;text-align:center;color:var(--muted);">no image</div>`}
         </div>
       </div>
@@ -534,20 +534,56 @@ function renderViewer(v) {
 
 function wireZoom() {
   const vp = $('#vp'), img = $('#vpImg'); if (!img) return;
-  const apply = () => { img.style.transform = `translate(${state.tx}px,${state.ty}px) scale(${state.zoom})`; const z=$('#zLbl'); if (z) z.textContent = Math.round(state.zoom*100)+'%'; };
-  const clamp = () => { state.zoom = Math.max(1, Math.min(5, state.zoom)); if (state.zoom === 1) { state.tx = 0; state.ty = 0; } };
-  $('#zIn').onclick = () => { state.zoom += .5; clamp(); apply(); };
-  $('#zOut').onclick = () => { state.zoom -= .5; clamp(); apply(); };
-  vp.onwheel = (e) => { e.preventDefault(); state.zoom += (e.deltaY < 0 ? .25 : -.25); clamp(); apply(); };
-  let dragging = false, sx = 0, sy = 0;
-  vp.onmousedown = (e) => { if (state.zoom === 1) return; dragging = true; sx = e.clientX - state.tx; sy = e.clientY - state.ty; vp.style.cursor = 'grabbing'; };
-  window.addEventListener('mousemove', (e) => { if (!dragging) return; state.tx = e.clientX - sx; state.ty = e.clientY - sy; apply(); });
-  window.addEventListener('mouseup', () => { dragging = false; if (vp && vp.isConnected) vp.style.cursor = 'grab'; });
+  const lbl = $('#zLbl');
+  const clampPan = () => {                       // keep the image edges from drifting inside the viewport
+    const r = vp.getBoundingClientRect();
+    const w = img.clientWidth * state.zoom, h = img.clientHeight * state.zoom;
+    state.tx = Math.max(Math.min(0, r.width - w), Math.min(0, state.tx));
+    state.ty = Math.max(Math.min(0, r.height - h), Math.min(0, state.ty));
+  };
+  const apply = () => { img.style.transform = `translate(${state.tx}px,${state.ty}px) scale(${state.zoom})`; if (lbl) lbl.textContent = Math.round(state.zoom*100)+'%'; };
+  // Zoom toward the point (px,py) in viewport coords so it stays put -- not the top-left corner.
+  const zoomTo = (z1, px, py) => {
+    z1 = Math.max(1, Math.min(5, z1));
+    const z0 = state.zoom; if (z1 === z0) return;
+    const r = vp.getBoundingClientRect();
+    const cx = px == null ? r.width / 2 : px - r.left;
+    const cy = py == null ? r.height / 2 : py - r.top;
+    state.tx = cx - (cx - state.tx) * (z1 / z0);
+    state.ty = cy - (cy - state.ty) * (z1 / z0);
+    state.zoom = z1;
+    if (state.zoom === 1) { state.tx = 0; state.ty = 0; } else { clampPan(); }
+    apply();
+  };
+  $('#zIn').onclick = () => zoomTo(state.zoom + 0.4);
+  $('#zOut').onclick = () => zoomTo(state.zoom - 0.4);
+  // Trackpad pinch arrives as a wheel event with ctrlKey set; zoom GENTLY and proportionally to the
+  // gesture size. Plain two-finger scroll (no ctrlKey) is left alone so it scrolls the panel.
+  vp.onwheel = (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    zoomTo(state.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+  };
+  // Drag-to-pan only when zoomed in. preventDefault stops text selection; listeners are added per
+  // drag and removed on release, so repeated opens don't leak handlers.
+  vp.onmousedown = (e) => {
+    if (state.zoom === 1) return;
+    e.preventDefault();
+    const sx = e.clientX - state.tx, sy = e.clientY - state.ty;
+    vp.style.cursor = 'grabbing';
+    const move = (ev) => { state.tx = ev.clientX - sx; state.ty = ev.clientY - sy; clampPan(); apply(); };
+    const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); vp.style.cursor = 'grab'; };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  };
   apply();
 }
 
 // ---------- select-to-follow-up ----------
-function onMouseUp() {
+function onMouseUp(e) {
+  // A click on the popover must NOT re-run this handler -- doing so rebuilt #popover and destroyed
+  // the element mid-click, so the "Ask about this" click never fired. Let its own onclick run.
+  if (e && e.target && e.target.closest && e.target.closest('#popover')) return;
   const sel = window.getSelection && window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return hidePopover();
   const text = sel.toString().replace(/\s+/g, ' ').trim();
