@@ -110,9 +110,12 @@ def _build_done(result):
             qp["block" if block is not None else "q"] = block if block is not None else snip
             img = "/api/page?" + urlencode(qp)
         kind = "figure" if is_fig else ("table" if str(s.get("source_type", "")).startswith("table") else "pdf")
+        match = s.get("match")
         citations.append({"n": i, "tag": tag, "doc": sf, "page": page,
                           "loc": f"p. {page}" if page else "", "kind": kind,
-                          "source_type": s.get("source_type"), "snippet": snip, "image_url": img})
+                          "source_type": s.get("source_type"), "snippet": snip, "image_url": img,
+                          "match": round(match, 4) if match is not None else None,
+                          "score": round(s["score"], 4) if s.get("score") is not None else None})
     return {"answer": answer, "citations": citations, "tag_to_n": tag_to_n,
             "abstained": len(cited) == 0}
 

@@ -18,6 +18,7 @@ signal). Auditability is the product: a verifier needs both "what retrieval foun
 and "what the model claimed to stand on".
 """
 
+import math
 import re
 
 from query import retrieve, route_query
@@ -197,6 +198,49 @@ def resolve_citations(answer_text, citation_map):
     return cited, hallucinated
 
 
+def attach_scores(metadatas, distances):
+    """Carry the retriever's per-chunk score onto each metadata under `_score`, ONLY when
+    reranking is on -- then `distances` are bge-reranker cross-encoder logits (higher = better),
+    a true relevance signal. Without rerank, `distances` are RRF/cosine values with different
+    semantics, so we attach nothing (the UI then shows no match bar -- we never fake a number).
+    Done BEFORE parent-table expansion so the score survives the copy (expand_parent_tables keeps
+    the dict's keys); a parent table inherits its first matched row's score."""
+    from config import RERANK
+    if not RERANK:
+        return
+    for m, dist in zip(metadatas, distances):
+        try:
+            m["_score"] = float(dist)
+        except (TypeError, ValueError):
+            pass
+
+
+def _match(meta):
+    """(raw_logit, match_0_1) for a chunk, or (None, None) if no score was attached.
+    match = sigmoid(logit): bge-reranker is trained with a sigmoid/BCE objective, so the
+    sigmoid of its logit IS the model's own relevance probability -- the defensible 0..1 reading."""
+    s = meta.get("_score")
+    if s is None:
+        return None, None
+    return s, 1.0 / (1.0 + math.exp(-s))
+
+
+def build_sources(metadatas, documents, cited, citation_map):
+    """Structured per-source provenance (S1..Sk in order) for a UI: location, the text, whether the
+    answer cited it, and the reranker match score when available. Shared by both answer paths."""
+    out = []
+    for i, (m, d) in enumerate(zip(metadatas, documents), start=1):
+        tag = f"S{i}"
+        raw, match = _match(m)
+        out.append({
+            "tag": tag, "source_file": m.get("source_file"), "page": m.get("page_number"),
+            "source_type": m.get("source_type"), "citation": citation_map[tag],
+            "cited": tag in cited, "text": d, "block_idx": m.get("block_idx"),
+            "score": raw, "match": match,
+        })
+    return out
+
+
 def answer_question(question, k=5, source_file=None, history=None):
     """End-to-end: (condense) -> retrieve -> build grounded prompt -> generate -> resolve cites.
 
@@ -218,6 +262,7 @@ def answer_question(question, k=5, source_file=None, history=None):
     res = retrieve(search_q, k=k, source_file=sf)
     metadatas = res["metadatas"][0]
     documents = res["documents"][0]
+    attach_scores(metadatas, res.get("distances", [[]])[0])   # reranker match score (if on)
     # small-to-big (#26): expand a retrieved table row into its full parent table
     from config import PARENT_TABLES
     if PARENT_TABLES:
@@ -229,12 +274,7 @@ def answer_question(question, k=5, source_file=None, history=None):
 
     # Per-source provenance (S1..Sk in order), so a caller (e.g. the GUI) can render the
     # cited PAGE image. cited == whether the answer actually used this source.
-    sources = [
-        {"tag": f"S{i}", "source_file": m.get("source_file"), "page": m.get("page_number"),
-         "source_type": m.get("source_type"), "citation": citation_map[f"S{i}"],
-         "cited": f"S{i}" in cited, "text": d, "block_idx": m.get("block_idx")}
-        for i, (m, d) in enumerate(zip(metadatas, documents), start=1)
-    ]
+    sources = build_sources(metadatas, documents, cited, citation_map)
 
     return {
         "question": question,
@@ -256,6 +296,7 @@ def answer_stream(question, k=5, source_file=None, history=None):
     res = retrieve(search_q, k=k, source_file=sf)
     metadatas = res["metadatas"][0]
     documents = res["documents"][0]
+    attach_scores(metadatas, res.get("distances", [[]])[0])   # reranker match score (if on)
     from config import PARENT_TABLES
     if PARENT_TABLES:
         metadatas, documents = expand_parent_tables(metadatas, documents)
@@ -267,12 +308,7 @@ def answer_stream(question, k=5, source_file=None, history=None):
         yield answer_text, None
 
     cited, hallucinated = resolve_citations(answer_text, citation_map)
-    sources = [
-        {"tag": f"S{i}", "source_file": m.get("source_file"), "page": m.get("page_number"),
-         "source_type": m.get("source_type"), "citation": citation_map[f"S{i}"],
-         "cited": f"S{i}" in cited, "text": d, "block_idx": m.get("block_idx")}
-        for i, (m, d) in enumerate(zip(metadatas, documents), start=1)
-    ]
+    sources = build_sources(metadatas, documents, cited, citation_map)
     yield answer_text, {
         "question": question, "answer": answer_text, "citation_map": citation_map,
         "cited": cited, "hallucinated": hallucinated, "sources": sources,
