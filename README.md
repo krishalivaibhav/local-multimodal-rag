@@ -193,7 +193,3 @@ On an independent, hand-built **HARD** evaluation set (questions authored from t
 The pipeline now runs a **three-document corpus** (810H + 810G + NASA SE Handbook) with deterministic document routing (precision 1.00) and dense+BM25 hybrid retrieval. On that harder multi-document set, **answer value reached 0.73** after the table-representation work: small-to-big parent-table retrieval (finding #36) and a list-vs-table fix that catches *lists mis-read as tables* (finding #37) — recovering two table cases with zero regressions. Tables are now down to a single remaining case (a 3-level nested header that needs a stronger VLM); see `findings.md`.
 
 Engineering decisions, observed truths, dead-ends, and the running evaluation are logged in `findings.md`, `deferred.md`, and `defense_qa.md`. **Phase 2** — the figures pipeline (the same `render → VLM → chunk` pattern) and the scanned/OCR path — is in progress (a full VLM+figures corpus build is running).
-
----
-
-*Built as part of a research internship. Approach and architecture are public; data and specific evaluation results are confidential.*i j

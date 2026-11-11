@@ -11,7 +11,7 @@ Run with:
 
 import pdfplumber
 
-PDF_PATH = "/Users/vaibhavkrishali/Desktop/projects/RAG over pdf DRDO/code/data/pdfs/mil-std-810h.pdf"
+PDF_PATH = "data/pdfs/mil-std-810h.pdf"
 
 
 def _nonempty_cols(row):
